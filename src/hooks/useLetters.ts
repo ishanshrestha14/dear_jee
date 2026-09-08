@@ -23,14 +23,18 @@ export function useLetters(): UseLetters {
     let cancelled = false
 
     async function load() {
-      const inbox = await letterRepository.listReceived(currentUserId)
-      const me = await profileRepository.getById(currentUserId)
+      const [inbox, me] = await Promise.all([
+        letterRepository.listReceived(currentUserId),
+        profileRepository.getById(currentUserId),
+      ])
       if (cancelled) return
 
       if (inbox.error !== null) setError(inbox.error)
       else setLetters(inbox.data)
 
-      if (me.data?.partnerId) {
+      if (me.error !== null) {
+        setError(me.error)
+      } else if (me.data?.partnerId) {
         setPartnerId(me.data.partnerId)
         const partner = await profileRepository.getById(me.data.partnerId)
         if (!cancelled && partner.data) setPartnerName(partner.data.fullName)
@@ -61,7 +65,11 @@ export function useLetters(): UseLetters {
   const markRead = useCallback<UseLetters['markRead']>(async (id) => {
     // Optimistic: the dot disappears the instant the letter opens.
     setLetters((current) => current.map((l) => (l.id === id ? { ...l, isRead: true } : l)))
-    await letterRepository.markRead(id)
+    const result = await letterRepository.markRead(id)
+    if (result.error !== null) {
+      // Roll back: the server never confirmed the read, so the dot returns.
+      setLetters((current) => current.map((l) => (l.id === id ? { ...l, isRead: false } : l)))
+    }
   }, [])
 
   return { letters, partnerName, loading, error, sendLetter, markRead }

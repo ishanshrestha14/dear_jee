@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { X } from 'lucide-react'
 import { PaperTexture } from '../design/PaperTexture'
@@ -17,16 +17,50 @@ interface LetterModalProps {
  * Framer Motion grows it out of the card's position — the movement that
  * reads as a letter unfolding rather than a dialog appearing.
  */
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
 export function LetterModal({ letter, senderName, receiverName, onClose }: LetterModalProps) {
+  const panelRef = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null
+    panelRef.current?.focus()
+
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') {
+        onClose()
+        return
+      }
+      if (event.key !== 'Tab') return
+
+      const panel = panelRef.current
+      if (!panel) return
+      const focusable = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+      if (focusable.length === 0) return
+
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement
+
+      if (event.shiftKey) {
+        if (active === first || !panel.contains(active)) {
+          event.preventDefault()
+          last.focus()
+        }
+      } else {
+        if (active === last || !panel.contains(active)) {
+          event.preventDefault()
+          first.focus()
+        }
+      }
     }
     window.addEventListener('keydown', onKey)
     document.body.style.overflow = 'hidden'
     return () => {
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = ''
+      previouslyFocused?.focus()
     }
   }, [onClose])
 
@@ -39,14 +73,17 @@ export function LetterModal({ letter, senderName, receiverName, onClose }: Lette
       onClick={onClose}
       role="dialog"
       aria-modal="true"
+      aria-label={`Letter from ${senderName}`}
     >
       <div className="fixed inset-0 bg-ink-ui/25 backdrop-blur-[2px]" aria-hidden />
 
       <motion.div
+        ref={panelRef}
+        tabIndex={-1}
         layoutId={`letter-${letter.id}`}
         onClick={(event) => event.stopPropagation()}
         transition={{ type: 'spring', stiffness: 210, damping: 26 }}
-        className="relative w-full max-w-[600px]"
+        className="relative w-full max-w-[600px] focus:outline-none"
       >
         <PaperTexture className="p-8 sm:p-12">
           <button

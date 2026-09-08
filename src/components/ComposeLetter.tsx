@@ -7,10 +7,11 @@ import { MAX_LETTER_LENGTH, validateLetter } from '../lib/validation'
 interface ComposeLetterProps {
   partnerName: string
   onSend: (message: string) => Promise<{ ok: boolean; error?: string }>
+  disabled?: boolean
 }
 
 /** A blank page. Nothing on screen competes with the writing. */
-export function ComposeLetter({ partnerName, onSend }: ComposeLetterProps) {
+export function ComposeLetter({ partnerName, onSend, disabled = false }: ComposeLetterProps) {
   const [message, setMessage] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
@@ -43,23 +44,26 @@ export function ComposeLetter({ partnerName, onSend }: ComposeLetterProps) {
             if (error) setError(null)
           }}
           rows={12}
-          maxLength={MAX_LETTER_LENGTH}
           autoFocus
+          disabled={disabled}
+          aria-label="Your letter"
+          aria-describedby="compose-word-count"
           placeholder="Tell them what you were thinking about this morning…"
-          className="mt-5 w-full resize-none bg-transparent font-letter text-[17px] leading-[1.85] text-ink-letter placeholder:text-ink-muted/60 focus:outline-none"
+          className="mt-5 w-full resize-none bg-transparent font-letter text-[17px] leading-[1.85] text-ink-letter placeholder:text-ink-muted/60 focus:outline-none disabled:opacity-60"
         />
 
         <div className="mt-6 flex items-center justify-between border-t border-paper-edge pt-5">
-          <span className="font-ui text-xs text-ink-muted">
+          <span id="compose-word-count" className="font-ui text-xs text-ink-muted">
             {words} {words === 1 ? 'word' : 'words'}
+            {message.length > 4500 && ` · ${MAX_LETTER_LENGTH - message.length} characters left`}
           </span>
 
           <motion.button
             type="button"
             onClick={handleSend}
-            disabled={!valid || sending}
-            whileHover={valid && !sending ? { boxShadow: 'var(--shadow-letter-lifted)' } : undefined}
-            whileTap={valid && !sending ? { scale: 0.97 } : undefined}
+            disabled={!valid || sending || disabled}
+            whileHover={valid && !sending && !disabled ? { boxShadow: 'var(--shadow-letter-lifted)' } : undefined}
+            whileTap={valid && !sending && !disabled ? { scale: 0.97 } : undefined}
             className="inline-flex items-center gap-2 rounded-full bg-accent px-6 py-2.5 font-ui text-sm font-medium text-paper-app disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Send size={15} />
@@ -67,7 +71,11 @@ export function ComposeLetter({ partnerName, onSend }: ComposeLetterProps) {
           </motion.button>
         </div>
 
-        {error && <p className="mt-4 font-ui text-sm text-accent">{error}</p>}
+        {error && (
+          <p role="alert" className="mt-4 font-ui text-sm text-accent">
+            {error}
+          </p>
+        )}
       </PaperTexture>
     </div>
   )

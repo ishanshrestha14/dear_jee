@@ -20,13 +20,14 @@ export function LetterCard({ letter, senderName, onOpen }: LetterCardProps) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
       whileHover={{ boxShadow: 'var(--shadow-letter-lifted)' }}
-      className="w-full rounded-letter text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-soft"
+      className="w-full rounded-letter text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
     >
       <PaperTexture className="p-6 sm:p-7">
         <div className="flex items-start justify-between gap-4">
           <span className="font-hand text-2xl text-ink-ui">{senderName}</span>
           {!letter.isRead && (
             <span
+              role="img"
               aria-label="Unread"
               className="mt-2 h-2 w-2 shrink-0 rounded-full bg-accent"
             />
