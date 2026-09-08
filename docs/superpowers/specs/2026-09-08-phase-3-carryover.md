@@ -72,3 +72,15 @@ aesthetic choice.
   satisfies "18+").
 - `npx tsc --noEmit` is a no-op in this repo — the root tsconfig is
   `{"files": [], "references": [...]}`. Use `npm run typecheck` (`tsc -b`).
+
+## Deferred from the Phase 3 Task 2 security review
+
+**`letters` foreign keys are `on delete cascade`.** Deleting either account
+destroys the entire correspondence, including the surviving partner's received
+letters — one person can erase the other's. This is latent, not live: v1 has no
+delete flow and none is planned before Phase 5. Decide between `on delete
+restrict` and a soft-delete column BEFORE any account-deletion feature ships.
+
+**`link_partners` uses `if me is null` rather than `if not found`.** Works for a
+composite variable; `if not found` is the idiom and is robust to an all-null
+row. Cosmetic.
