@@ -1,0 +1,29 @@
+@import 'tailwindcss';
+
+/*
+ * Single source of truth for the Dear Jee palette.
+ * Values are taken verbatim from the PRD; no pure white or pure black.
+ */
+@theme {
+  --color-paper-app: #fdfbf7;
+  --color-paper-letter: #f4efe6;
+  --color-paper-edge: #e8e0d2;
+
+  --color-ink-ui: #2c2825;
+  --color-ink-muted: #8a8078;
+  --color-ink-letter: rgb(26 26 26 / 0.85);
+
+  --color-accent: #c87963;
+  --color-accent-soft: #e3b3a4;
+  --color-accent-gold: #d4af37;
+
+  --font-ui: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-letter: 'Lora', ui-serif, Georgia, serif;
+  --font-hand: 'Caveat', ui-serif, cursive;
+
+  /* Warm-tinted, diffused shadows: the letter rests on a desk. */
+  --shadow-letter: 0 1px 2px rgb(140 110 90 / 0.06), 0 8px 24px rgb(140 110 90 / 0.1);
+  --shadow-letter-lifted: 0 2px 4px rgb(140 110 90 / 0.08), 0 18px 44px rgb(140 110 90 / 0.16);
+
+  --radius-letter: 3px;
+}
