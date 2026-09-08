@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { currentUserId, letterRepository, profileRepository } from '../data'
+import { letterRepository } from '../data'
+import { useAuth } from '../auth/useAuth'
 import type { Letter } from '../data/types'
 
 interface UseLetters {
@@ -11,55 +12,57 @@ interface UseLetters {
   markRead(id: string): Promise<void>
 }
 
-/** Loads the inbox once on mount and keeps it in sync with local actions. */
+/**
+ * The inbox. Identity and partner resolution belong to AuthProvider; this
+ * hook only owns letters, and reloads whenever the signed-in user changes.
+ */
 export function useLetters(): UseLetters {
+  const { userId, profile, partnerName, loading: authLoading } = useAuth()
+  const partnerId = profile?.partnerId ?? null
+
   const [letters, setLetters] = useState<Letter[]>([])
-  const [partnerName, setPartnerName] = useState('')
-  const [partnerId, setPartnerId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    let cancelled = false
-
-    async function load() {
-      const [inbox, me] = await Promise.all([
-        letterRepository.listReceived(currentUserId),
-        profileRepository.getById(currentUserId),
-      ])
-      if (cancelled) return
-
-      if (inbox.error !== null) setError(inbox.error)
-      else setLetters(inbox.data)
-
-      if (me.error !== null) {
-        setError(me.error)
-      } else if (me.data?.partnerId) {
-        setPartnerId(me.data.partnerId)
-        const partner = await profileRepository.getById(me.data.partnerId)
-        if (!cancelled && partner.data) setPartnerName(partner.data.fullName)
-      }
-      if (!cancelled) setLoading(false)
+    if (userId === null) {
+      setLetters([])
+      setLoading(authLoading)
+      return
     }
 
-    void load()
+    let cancelled = false
+    setLoading(true)
+
+    void (async () => {
+      const inbox = await letterRepository.listReceived(userId)
+      if (cancelled) return
+      if (inbox.error !== null) setError(inbox.error)
+      else {
+        setLetters(inbox.data)
+        setError(null)
+      }
+      setLoading(false)
+    })()
+
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [userId, authLoading])
 
   const sendLetter = useCallback<UseLetters['sendLetter']>(
     async (message) => {
-      if (!partnerId) return { ok: false, error: 'You are not connected to anyone yet.' }
+      if (userId === null) return { ok: false, error: 'You are not signed in.' }
+      if (partnerId === null) return { ok: false, error: 'You are not connected to anyone yet.' }
       const result = await letterRepository.send({
-        senderId: currentUserId,
+        senderId: userId,
         receiverId: partnerId,
         message,
       })
       if (result.error !== null) return { ok: false, error: result.error }
       return { ok: true }
     },
-    [partnerId],
+    [userId, partnerId],
   )
 
   const markRead = useCallback<UseLetters['markRead']>(async (id) => {
@@ -72,5 +75,12 @@ export function useLetters(): UseLetters {
     }
   }, [])
 
-  return { letters, partnerName, loading, error, sendLetter, markRead }
+  return {
+    letters,
+    partnerName,
+    loading: loading || authLoading,
+    error,
+    sendLetter,
+    markRead,
+  }
 }
