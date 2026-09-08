@@ -75,6 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (id === null) {
         setProfile(null)
         setPartnerName('')
+        setError(null)
       } else {
         void loadProfile(id)
       }
