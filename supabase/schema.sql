@@ -35,7 +35,7 @@ create or replace function handle_new_user()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
   code text;
@@ -66,13 +66,16 @@ create or replace function link_partners(code text)
 returns profiles
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
   me    profiles;
   other profiles;
 begin
-  select * into me from profiles where id = auth.uid();
+  -- Lock both rows: two people redeeming the same code concurrently would
+  -- otherwise both see partner_id null, both pass, and the last write would
+  -- win — leaving A pointing at B while B points at C.
+  select * into me from profiles where id = auth.uid() for update;
   if me is null then
     raise exception 'PROFILE_NOT_FOUND';
   end if;
@@ -80,7 +83,7 @@ begin
     raise exception 'ALREADY_LINKED';
   end if;
 
-  select * into other from profiles where invite_code = code;
+  select * into other from profiles where invite_code = code for update;
   if other is null then
     raise exception 'INVALID_CODE';
   end if;
@@ -99,27 +102,94 @@ begin
 end;
 $$;
 
--- The anonymous reader's view of a shared letter. Exactly four columns:
--- ids and emails must be unreachable from an unauthenticated session.
--- security_invoker = false is deliberate and load-bearing. With invoker
--- rights the view would run as the caller, and an anonymous caller has no
--- SELECT policy on `letters` — so the view would return nothing and every
--- share link would 404. Running as the view owner is what lets this view
--- be the restricted window onto letters that the spec calls for; the
--- WHERE clause and the four-column list are the entire boundary, which is
--- why neither may be widened.
-create or replace view public_letters
-with (security_invoker = false)
-as
-  select
-    l.share_slug           as share_slug,
-    l.message              as message,
-    l.created_at           as created_at,
-    sender.full_name       as sender_name,
-    receiver.full_name     as receiver_name
+-- The anonymous reader's path to a shared letter.
+--
+-- This is a FUNCTION, not a view, and that is the security control. A view
+-- granted to `anon` can be selected with no filter, which would let anyone
+-- list every shared letter in the database — and unlisted-link privacy rests
+-- entirely on the slug being unguessable. A function makes the slug a
+-- mandatory argument, so possession of the link is the only way in.
+--
+-- Returns exactly the four columns the spec allows an anonymous reader to
+-- see. Ids and emails are unreachable from here.
+create or replace function get_public_letter(slug text)
+returns table (
+  message       text,
+  created_at    timestamptz,
+  sender_name   text,
+  receiver_name text
+)
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select l.message, l.created_at, sender.full_name, receiver.full_name
   from letters l
   join profiles sender   on sender.id   = l.sender_id
   join profiles receiver on receiver.id = l.receiver_id
-  where l.is_public = true and l.share_slug is not null;
+  where l.share_slug = slug and l.is_public = true
+$$;
 
-grant select on public_letters to anon, authenticated;
+revoke all on function get_public_letter(text) from public;
+grant execute on function get_public_letter(text) to anon, authenticated;
+
+-- link_partners needs an authenticated caller; it fails safely for anon
+-- (auth.uid() is null), but there is no reason to expose it.
+revoke all on function link_partners(text) from public;
+grant execute on function link_partners(text) to authenticated;
+
+-- Resolves the caller's partner WITHOUT re-entering the profiles RLS policy.
+-- A policy on `profiles` that subqueries `profiles` makes Postgres raise
+-- "infinite recursion detected in policy for relation profiles", which fails
+-- every profile read and every letter insert. security definer breaks the
+-- cycle.
+create or replace function current_partner_id()
+returns uuid
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select partner_id from profiles where id = auth.uid()
+$$;
+
+revoke all on function current_partner_id() from public;
+grant execute on function current_partner_id() to authenticated;
+
+-- Enforces the column split RLS cannot express: the receiver may only flip
+-- is_read; the sender may only publish. Without this, a receiver could
+-- rewrite the sender's words, and either party could re-point receiver_id
+-- into a stranger's inbox — defeating the insert policy's partner check.
+create or replace function enforce_letter_update()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  if new.sender_id is distinct from old.sender_id
+     or new.receiver_id is distinct from old.receiver_id
+     or new.message is distinct from old.message
+     or new.created_at is distinct from old.created_at
+     or new.id is distinct from old.id then
+    raise exception 'IMMUTABLE_COLUMN';
+  end if;
+
+  if new.is_read is distinct from old.is_read and auth.uid() <> old.receiver_id then
+    raise exception 'ONLY_RECEIVER_MAY_READ';
+  end if;
+
+  if (new.is_public is distinct from old.is_public
+      or new.share_slug is distinct from old.share_slug)
+     and auth.uid() <> old.sender_id then
+    raise exception 'ONLY_SENDER_MAY_SHARE';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists letters_enforce_update on letters;
+create trigger letters_enforce_update
+  before update on letters
+  for each row execute function enforce_letter_update();

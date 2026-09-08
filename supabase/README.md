@@ -24,10 +24,10 @@ re-running them is safe.
 
 ## 4. Copy the keys into .env
 
-Project Settings → API. Copy `.env.example` to `.env` and fill in:
+Settings → API Keys. Copy `.env.example` to `.env` and fill in:
 
     VITE_SUPABASE_URL=https://<your-project-ref>.supabase.co
-    VITE_SUPABASE_ANON_KEY=<the anon / public key>
+    VITE_SUPABASE_ANON_KEY=<the anon / public key, sometimes labelled "publishable">
 
 The anon key is public by design — it identifies the project, and RLS is what
 protects the data. Never put the `service_role` key in this repo; it bypasses

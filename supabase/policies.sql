@@ -12,7 +12,7 @@ create policy profiles_select_self_or_partner on profiles
   for select to authenticated
   using (
     id = auth.uid()
-    or id = (select p.partner_id from profiles p where p.id = auth.uid())
+    or id = current_partner_id()
   );
 
 drop policy if exists profiles_update_self on profiles;
@@ -20,6 +20,13 @@ create policy profiles_update_self on profiles
   for update to authenticated
   using (id = auth.uid())
   with check (id = auth.uid());
+
+-- RLS is row-scoped, so the policy above would still let someone write their
+-- own partner_id or invite_code — and setting partner_id to a stranger's uuid
+-- would then satisfy the letters insert policy. Column grants are checked
+-- BEFORE RLS, so this is what actually confines the write to full_name.
+revoke update on profiles from authenticated;
+grant update (full_name) on profiles to authenticated;
 
 -- ---------- letters ----------
 
@@ -31,7 +38,7 @@ create policy letters_insert_own_to_partner on letters
   for insert to authenticated
   with check (
     sender_id = auth.uid()
-    and receiver_id = (select p.partner_id from profiles p where p.id = auth.uid())
+    and receiver_id = current_partner_id()
   );
 
 drop policy if exists letters_select_participant on letters;
@@ -39,9 +46,10 @@ create policy letters_select_participant on letters
   for select to authenticated
   using (sender_id = auth.uid() or receiver_id = auth.uid());
 
--- Sender may share; receiver may mark read. Column-level restriction is not
--- available in RLS, so both roles are allowed to update the row and the
--- adapter sends only the intended columns.
+-- Sender may share; receiver may mark read. RLS cannot restrict columns, so
+-- this policy admits both participants to the row and the
+-- letters_enforce_update trigger in schema.sql enforces which columns each
+-- of them may actually change. The policy alone is NOT the control.
 drop policy if exists letters_update_participant on letters;
 create policy letters_update_participant on letters
   for update to authenticated
