@@ -1,12 +1,20 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { PaperTexture } from '../design/PaperTexture'
 import { useAuth } from '../auth/useAuth'
 import { profileRepository } from '../data'
 
+interface LocationState {
+  from?: string
+}
+
 export default function SetupProfile() {
   const { userId, refreshProfile } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  // Where they were headed before setup interrupted them — an invite link,
+  // usually. Falls back to the inbox for someone who came here directly.
+  const from = (location.state as LocationState | null)?.from ?? '/'
   const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -24,7 +32,7 @@ export default function SetupProfile() {
     }
     await refreshProfile()
     setBusy(false)
-    navigate('/', { replace: true })
+    navigate(from, { replace: true })
   }
 
   return (

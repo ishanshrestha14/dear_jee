@@ -28,7 +28,12 @@ export function RequireAuth({ children }: { children: ReactNode }) {
 
   const needsSetup = profile !== null && profile.fullName.trim() === ''
   if (needsSetup && location.pathname !== '/setup') {
-    return <Navigate to="/setup" replace />
+    // Carry the attempted path through setup as well. A new account arriving
+    // on an invite link is the COMMON case — B gets a link from A and has
+    // never used the app — and without this the code is lost at the setup
+    // detour: they name themselves, land on an empty inbox, and nothing on
+    // screen says the invite did not take.
+    return <Navigate to="/setup" replace state={{ from: location.pathname }} />
   }
 
   return <>{children}</>
