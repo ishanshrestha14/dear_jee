@@ -60,7 +60,9 @@
 
 ### Task 1: Extract the reusable repository contract suite
 
-This is deliberately first. The whole architectural bet of Phase 2 is that `supabaseRepository` satisfies the same contract as `mockRepository`. The 15 existing tests are hard-bound to the mock's constructor, so they cannot verify that. Extracting them now — before a second implementation exists — is what makes Task 4 verifiable. Written after the adapter, the extraction is worthless.
+This is deliberately first. The whole architectural bet of Phase 2 is that `supabaseRepository` satisfies the same contract as `mockRepository`. The 15 existing tests are hard-bound to the mock's constructor, so they cannot verify that, and the carry-over doc requires the extraction to happen before the adapter is written — after it, nobody does it.
+
+**Be clear about what this task does and does not buy.** It makes a second implementation *runnable* against the contract. It does NOT run the contract against Supabase in this plan, and no later task does either: the suite asserts against seeded data (`listReceived` expects at least one letter), so pointing it at a fresh Postgres database would fail for want of a seeding harness rather than for want of correctness. Building that harness is deliberately out of scope here — Phase 3's verification is the two-account manual walkthrough in Task 9. Do not add integration tests, a seeding harness, or a Supabase test run to this task.
 
 **Files:**
 - Create: `src/data/contractTests.ts`
@@ -408,8 +410,15 @@ $$;
 
 -- The anonymous reader's view of a shared letter. Exactly four columns:
 -- ids and emails must be unreachable from an unauthenticated session.
+-- security_invoker = false is deliberate and load-bearing. With invoker
+-- rights the view would run as the caller, and an anonymous caller has no
+-- SELECT policy on `letters` — so the view would return nothing and every
+-- share link would 404. Running as the view owner is what lets this view
+-- be the restricted window onto letters that the spec calls for; the
+-- WHERE clause and the four-column list are the entire boundary, which is
+-- why neither may be widened.
 create or replace view public_letters
-with (security_invoker = true)
+with (security_invoker = false)
 as
   select
     l.share_slug           as share_slug,
@@ -1894,7 +1903,39 @@ Do this with two browsers, or one normal and one private window, so two sessions
 9. Browser A: open it. The dot should clear. Reload — it should stay cleared.
 10. Browser A: reply. Browser B should see it after a reload.
 
-- [ ] **Step 5: Verify the authorization boundary**
+- [ ] **Step 5: Verify the public view works for anonymous readers**
+
+Phase 4 serves share links from `public_letters`, and that view is the only
+place an anonymous session can reach letter content. Prove it now, while the
+SQL is fresh, rather than discovering it broken in Phase 4.
+
+In the SQL editor, take any letter id from step 4 and share it:
+
+```sql
+update letters set is_public = true, share_slug = 'testslug1234'
+where id = '<a letter id from step 4>';
+
+set role anon;
+select * from public_letters where share_slug = 'testslug1234';
+-- expect: EXACTLY ONE row, with share_slug, message, created_at,
+-- sender_name, receiver_name and nothing else.
+select * from letters;   -- expect: still 0 rows
+reset role;
+```
+
+If the `public_letters` select returns zero rows, the view is running with
+invoker rights and cannot see the underlying table as `anon`. Re-apply the
+view definition from `schema.sql` and confirm it carries
+`with (security_invoker = false)`.
+
+Then undo the test share:
+
+```sql
+update letters set is_public = false, share_slug = null
+where share_slug = 'testslug1234';
+```
+
+- [ ] **Step 6: Verify the authorization boundary**
 
 Still signed in as the second account, in the browser console:
 
@@ -1914,7 +1955,7 @@ await window.__sb.from('letters').insert({
 
 Expected: a row-level security error. If this insert succeeds, the `letters_insert_own_to_partner` policy is wrong — stop and fix it before going further.
 
-- [ ] **Step 6: Record the outcome and commit**
+- [ ] **Step 7: Record the outcome and commit**
 
 Remove the temporary `__sb` line. Then:
 
