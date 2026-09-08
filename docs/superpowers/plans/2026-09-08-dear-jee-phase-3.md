@@ -344,7 +344,7 @@ create or replace function handle_new_user()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
   code text;
@@ -375,13 +375,16 @@ create or replace function link_partners(code text)
 returns profiles
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
   me    profiles;
   other profiles;
 begin
-  select * into me from profiles where id = auth.uid();
+  -- Lock both rows: two people redeeming the same code concurrently would
+  -- otherwise both see partner_id null, both pass, and the last write would
+  -- win — leaving A pointing at B while B points at C.
+  select * into me from profiles where id = auth.uid() for update;
   if me is null then
     raise exception 'PROFILE_NOT_FOUND';
   end if;
@@ -389,7 +392,7 @@ begin
     raise exception 'ALREADY_LINKED';
   end if;
 
-  select * into other from profiles where invite_code = code;
+  select * into other from profiles where invite_code = code for update;
   if other is null then
     raise exception 'INVALID_CODE';
   end if;
@@ -410,28 +413,97 @@ $$;
 
 -- The anonymous reader's view of a shared letter. Exactly four columns:
 -- ids and emails must be unreachable from an unauthenticated session.
--- security_invoker = false is deliberate and load-bearing. With invoker
--- rights the view would run as the caller, and an anonymous caller has no
--- SELECT policy on `letters` — so the view would return nothing and every
--- share link would 404. Running as the view owner is what lets this view
--- be the restricted window onto letters that the spec calls for; the
--- WHERE clause and the four-column list are the entire boundary, which is
--- why neither may be widened.
-create or replace view public_letters
-with (security_invoker = false)
-as
-  select
-    l.share_slug           as share_slug,
-    l.message              as message,
-    l.created_at           as created_at,
-    sender.full_name       as sender_name,
-    receiver.full_name     as receiver_name
+-- The anonymous reader's path to a shared letter.
+--
+-- This is a FUNCTION, not a view, and that is the security control. A view
+-- granted to `anon` can be selected with no filter, which would let anyone
+-- list every shared letter in the database — and unlisted-link privacy rests
+-- entirely on the slug being unguessable. A function makes the slug a
+-- mandatory argument, so possession of the link is the only way in.
+--
+-- Returns exactly the four columns the spec allows an anonymous reader to
+-- see. Ids and emails are unreachable from here.
+create or replace function get_public_letter(slug text)
+returns table (
+  message       text,
+  created_at    timestamptz,
+  sender_name   text,
+  receiver_name text
+)
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select l.message, l.created_at, sender.full_name, receiver.full_name
   from letters l
   join profiles sender   on sender.id   = l.sender_id
   join profiles receiver on receiver.id = l.receiver_id
-  where l.is_public = true and l.share_slug is not null;
+  where l.share_slug = slug and l.is_public = true
+$$;
 
-grant select on public_letters to anon, authenticated;
+revoke all on function get_public_letter(text) from public;
+grant execute on function get_public_letter(text) to anon, authenticated;
+
+-- link_partners needs an authenticated caller; it fails safely for anon
+-- (auth.uid() is null), but there is no reason to expose it.
+revoke all on function link_partners(text) from public;
+grant execute on function link_partners(text) to authenticated;
+
+-- Resolves the caller's partner WITHOUT re-entering the profiles RLS policy.
+-- A policy on `profiles` that subqueries `profiles` makes Postgres raise
+-- "infinite recursion detected in policy for relation profiles", which fails
+-- every profile read and every letter insert. security definer breaks the
+-- cycle.
+create or replace function current_partner_id()
+returns uuid
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select partner_id from profiles where id = auth.uid()
+$$;
+
+revoke all on function current_partner_id() from public;
+grant execute on function current_partner_id() to authenticated;
+
+-- Enforces the column split RLS cannot express: the receiver may only flip
+-- is_read; the sender may only publish. Without this, a receiver could
+-- rewrite the sender's words, and either party could re-point receiver_id
+-- into a stranger's inbox — defeating the insert policy's partner check.
+create or replace function enforce_letter_update()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  if new.sender_id is distinct from old.sender_id
+     or new.receiver_id is distinct from old.receiver_id
+     or new.message is distinct from old.message
+     or new.created_at is distinct from old.created_at
+     or new.id is distinct from old.id then
+    raise exception 'IMMUTABLE_COLUMN';
+  end if;
+
+  if new.is_read is distinct from old.is_read and auth.uid() <> old.receiver_id then
+    raise exception 'ONLY_RECEIVER_MAY_READ';
+  end if;
+
+  if (new.is_public is distinct from old.is_public
+      or new.share_slug is distinct from old.share_slug)
+     and auth.uid() <> old.sender_id then
+    raise exception 'ONLY_SENDER_MAY_SHARE';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists letters_enforce_update on letters;
+create trigger letters_enforce_update
+  before update on letters
+  for each row execute function enforce_letter_update();
 ```
 
 - [ ] **Step 2: Write the policies**
@@ -453,7 +525,7 @@ create policy profiles_select_self_or_partner on profiles
   for select to authenticated
   using (
     id = auth.uid()
-    or id = (select p.partner_id from profiles p where p.id = auth.uid())
+    or id = current_partner_id()
   );
 
 drop policy if exists profiles_update_self on profiles;
@@ -461,6 +533,13 @@ create policy profiles_update_self on profiles
   for update to authenticated
   using (id = auth.uid())
   with check (id = auth.uid());
+
+-- RLS is row-scoped, so the policy above would still let someone write their
+-- own partner_id or invite_code — and setting partner_id to a stranger's uuid
+-- would then satisfy the letters insert policy. Column grants are checked
+-- BEFORE RLS, so this is what actually confines the write to full_name.
+revoke update on profiles from authenticated;
+grant update (full_name) on profiles to authenticated;
 
 -- ---------- letters ----------
 
@@ -472,7 +551,7 @@ create policy letters_insert_own_to_partner on letters
   for insert to authenticated
   with check (
     sender_id = auth.uid()
-    and receiver_id = (select p.partner_id from profiles p where p.id = auth.uid())
+    and receiver_id = current_partner_id()
   );
 
 drop policy if exists letters_select_participant on letters;
@@ -480,9 +559,10 @@ create policy letters_select_participant on letters
   for select to authenticated
   using (sender_id = auth.uid() or receiver_id = auth.uid());
 
--- Sender may share; receiver may mark read. Column-level restriction is not
--- available in RLS, so both roles are allowed to update the row and the
--- adapter sends only the intended columns.
+-- Sender may share; receiver may mark read. RLS cannot restrict columns, so
+-- this policy admits both participants to the row and the
+-- letters_enforce_update trigger in schema.sql enforces which columns each
+-- of them may actually change. The policy alone is NOT the control.
 drop policy if exists letters_update_participant on letters;
 create policy letters_update_participant on letters
   for update to authenticated
@@ -782,21 +862,25 @@ export function createSupabaseRepositories(): {
     },
 
     async getBySlug(slug) {
-      // Reads the restricted view, not the table: an anonymous session must
-      // never be able to reach ids or emails.
-      const { data, error } = await db
-        .from('public_letters')
-        .select('message, created_at, sender_name, receiver_name')
-        .eq('share_slug', slug)
-        .maybeSingle()
+      // Calls a security-definer function, NOT a table or view. A view
+      // granted to `anon` could be selected with no filter, listing every
+      // shared letter; a function makes the slug a mandatory argument, so
+      // possession of the link is the only way in. It returns exactly the
+      // four columns an anonymous reader may see.
+      const { data, error } = await db.rpc('get_public_letter', { slug })
       if (error) return fail(error.message)
-      if (data === null) return fail('This letter is not available.')
 
+      const rows = data as
+        | { message: string; created_at: string; sender_name: string; receiver_name: string }[]
+        | null
+      if (rows === null || rows.length === 0) return fail('This letter is not available.')
+
+      const row = rows[0]
       const view: PublicLetter = {
-        message: data.message as string,
-        createdAt: data.created_at as string,
-        senderName: (data.sender_name as string) || 'Someone',
-        receiverName: (data.receiver_name as string) || 'you',
+        message: row.message,
+        createdAt: row.created_at,
+        senderName: row.sender_name || 'Someone',
+        receiverName: row.receiver_name || 'you',
       }
       return ok(view)
     },
@@ -1903,11 +1987,11 @@ Do this with two browsers, or one normal and one private window, so two sessions
 9. Browser A: open it. The dot should clear. Reload — it should stay cleared.
 10. Browser A: reply. Browser B should see it after a reload.
 
-- [ ] **Step 5: Verify the public view works for anonymous readers**
+- [ ] **Step 5: Verify the anonymous share path**
 
-Phase 4 serves share links from `public_letters`, and that view is the only
-place an anonymous session can reach letter content. Prove it now, while the
-SQL is fresh, rather than discovering it broken in Phase 4.
+Phase 4 serves share links through `get_public_letter`, and that function is
+the only way an anonymous session can reach letter content. Prove it now,
+while the SQL is fresh, rather than discovering it broken in Phase 4.
 
 In the SQL editor, take any letter id from step 4 and share it:
 
@@ -1916,17 +2000,22 @@ update letters set is_public = true, share_slug = 'testslug1234'
 where id = '<a letter id from step 4>';
 
 set role anon;
-select * from public_letters where share_slug = 'testslug1234';
--- expect: EXACTLY ONE row, with share_slug, message, created_at,
--- sender_name, receiver_name and nothing else.
-select * from letters;   -- expect: still 0 rows
+
+-- With the slug: exactly one row, exactly four columns.
+select * from get_public_letter('testslug1234');
+
+-- Without the slug there must be no way in at all.
+select * from letters;                       -- expect: 0 rows
+select * from profiles;                      -- expect: 0 rows
+select * from get_public_letter('wrongslug'); -- expect: 0 rows
+
 reset role;
 ```
 
-If the `public_letters` select returns zero rows, the view is running with
-invoker rights and cannot see the underlying table as `anon`. Re-apply the
-view definition from `schema.sql` and confirm it carries
-`with (security_invoker = false)`.
+The middle three are the point: unlisted-link privacy rests entirely on the
+slug being unguessable, so there must be no call that returns shared letters
+*without* one. If any of them returns data, stop and fix it before real
+letters exist.
 
 Then undo the test share:
 
@@ -1934,6 +2023,30 @@ Then undo the test share:
 update letters set is_public = false, share_slug = null
 where share_slug = 'testslug1234';
 ```
+
+- [ ] **Step 5b: Verify the update trigger holds the column line**
+
+RLS cannot restrict columns; `letters_enforce_update` does. Signed in as the
+RECEIVER of a letter, in the browser console (see step 6 for exposing the
+client), attempt to rewrite the sender's words:
+
+```js
+await window.__sb.from('letters')
+  .update({ message: 'not what they wrote' })
+  .eq('id', '<a letter you received>')
+```
+
+Expected: an error mentioning `IMMUTABLE_COLUMN`. Then attempt to re-point a
+letter you sent into a stranger's inbox:
+
+```js
+await window.__sb.from('letters')
+  .update({ receiver_id: '00000000-0000-4000-8000-000000000000' })
+  .eq('id', '<a letter you sent>')
+```
+
+Expected: the same error. If either succeeds, the trigger is not installed —
+re-run `schema.sql`.
 
 - [ ] **Step 6: Verify the authorization boundary**
 
