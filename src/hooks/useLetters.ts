@@ -27,8 +27,8 @@ export function useLetters(): UseLetters {
       const me = await profileRepository.getById(currentUserId)
       if (cancelled) return
 
-      if (inbox.error) setError(inbox.error)
-      else setLetters(inbox.data!)
+      if (inbox.error !== null) setError(inbox.error)
+      else setLetters(inbox.data)
 
       if (me.data?.partnerId) {
         setPartnerId(me.data.partnerId)
@@ -52,7 +52,7 @@ export function useLetters(): UseLetters {
         receiverId: partnerId,
         message,
       })
-      if (result.error) return { ok: false, error: result.error }
+      if (result.error !== null) return { ok: false, error: result.error }
       return { ok: true }
     },
     [partnerId],
