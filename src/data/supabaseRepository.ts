@@ -226,6 +226,22 @@ export function createSupabaseRepositories(): {
       })
     },
 
+    async updateName(userId, fullName) {
+      return guard(async () => {
+        const trimmed = fullName.trim()
+        if (trimmed.length === 0) return fail('Please enter a name.')
+        const { data, error } = await db
+          .from('profiles')
+          .update({ full_name: trimmed })
+          .eq('id', userId)
+          .select()
+          .maybeSingle()
+        if (error) return fail(error.message)
+        if (data === null) return fail('Profile not found.')
+        return ok(toProfile(data as ProfileRow))
+      })
+    },
+
     async linkPartner(_userId, inviteCode) {
       return guard(async () => {
         // One transaction in the database: the link must not half-apply.

@@ -156,6 +156,15 @@ export function createMockRepositories(options: MockOptions = {}): {
       return profile ? ok({ ...profile }) : fail('That invite link is not valid.')
     },
 
+    async updateName(userId, fullName) {
+      const profile = findProfile(userId)
+      if (!profile) return fail('Profile not found.')
+      const trimmed = fullName.trim()
+      if (trimmed.length === 0) return fail('Please enter a name.')
+      profile.fullName = trimmed
+      return ok({ ...profile })
+    },
+
     async linkPartner(userId, inviteCode) {
       const self = findProfile(userId)
       if (!self) return fail('Profile not found.')

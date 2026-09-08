@@ -47,5 +47,6 @@ export interface LetterRepository {
 export interface ProfileRepository {
   getById(id: string): Promise<Result<Profile>>
   getByInviteCode(inviteCode: string): Promise<Result<Profile>>
+  updateName(userId: string, fullName: string): Promise<Result<Profile>>
   linkPartner(userId: string, inviteCode: string): Promise<Result<Profile>>
 }

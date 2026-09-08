@@ -6,6 +6,7 @@ import { Layout } from '../components/Layout'
 import Inbox from '../routes/Inbox'
 import Compose from '../routes/Compose'
 import AuthScreen from '../routes/AuthScreen'
+import SetupProfile from '../routes/SetupProfile'
 
 export default function App() {
   return (
@@ -15,6 +16,14 @@ export default function App() {
           <Layout>
             <Routes>
               <Route path="/auth" element={<AuthScreen />} />
+              <Route
+                path="/setup"
+                element={
+                  <RequireAuth>
+                    <SetupProfile />
+                  </RequireAuth>
+                }
+              />
               <Route
                 path="/"
                 element={
