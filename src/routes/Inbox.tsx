@@ -2,14 +2,13 @@ import { useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LetterCard } from '../components/LetterCard'
+import { LetterModal } from '../components/LetterModal'
 import { useLetters } from '../hooks/useLetters'
 import type { Letter } from '../data/types'
 
 export default function Inbox() {
   const { letters, partnerName, loading, error, markRead } = useLetters()
   const [open, setOpen] = useState<Letter | null>(null)
-  // `open` is read by LetterModal, mounted here in Task 9.
-  void open
 
   function handleOpen(letter: Letter) {
     setOpen(letter)
@@ -53,8 +52,16 @@ export default function Inbox() {
           />
         ))}
       </div>
-      {/* LetterModal is mounted here in Task 9. */}
-      <AnimatePresence>{null}</AnimatePresence>
+      <AnimatePresence>
+        {open && (
+          <LetterModal
+            letter={open}
+            senderName={partnerName}
+            receiverName="you"
+            onClose={() => setOpen(null)}
+          />
+        )}
+      </AnimatePresence>
     </>
   )
 }
