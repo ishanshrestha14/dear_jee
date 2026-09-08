@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { supabase, isSupabaseConfigured } from '../data/supabaseClient'
 import { profileRepository } from '../data'
 import { MOCK_USER_ID } from '../data/mockRepository'
@@ -21,9 +21,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // loadProfile is fired from three uncoordinated callers (boot getSession,
+  // every onAuthStateChange event including TOKEN_REFRESHED, and
+  // refreshProfile). Without sequencing, a stale response can land after a
+  // newer one and overwrite it. Each call captures the sequence number at
+  // start and every state update checks it is still current before applying.
+  const loadSeq = useRef(0)
+
   /** Loads the profile and, when linked, the partner's display name. */
   const loadProfile = useCallback(async (id: string) => {
+    const seq = ++loadSeq.current
     const me = await profileRepository.getById(id)
+    if (seq !== loadSeq.current) return
     if (me.error !== null) {
       setError(me.error)
       setProfile(null)
@@ -37,6 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return
     }
     const partner = await profileRepository.getById(me.data.partnerId)
+    if (seq !== loadSeq.current) return
     setPartnerName(partner.error !== null ? '' : partner.data.fullName)
   }, [])
 
@@ -59,13 +69,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const db = supabase
 
     void (async () => {
-      const { data } = await db.auth.getSession()
-      if (cancelled) return
-      const id = data.session?.user.id ?? null
-      if (id !== null) await loadProfile(id)
-      if (cancelled) return
-      setUserId(id)
-      setLoading(false)
+      try {
+        const { data } = await db.auth.getSession()
+        if (cancelled) return
+        const id = data.session?.user.id ?? null
+        if (id !== null) await loadProfile(id)
+        if (cancelled) return
+        setUserId(id)
+        setLoading(false)
+      } catch {
+        // Storage refused (e.g. Safari private mode): without this, loading
+        // never clears and the app hangs on the loading line forever.
+        if (cancelled) return
+        setError('Could not restore your session.')
+        setLoading(false)
+      }
     })()
 
     // Keeps every tab in step, and handles token refresh and sign-out.

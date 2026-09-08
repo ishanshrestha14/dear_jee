@@ -300,7 +300,7 @@ Nothing here runs yet — the Supabase project does not exist. These files are a
 
 **Interfaces:**
 - Consumes: the data model in spec §4
-- Produces: tables `profiles` and `letters`, view `public_letters`, functions `link_partners(invite_code text)` and `handle_new_user()`
+- Produces: tables `profiles` and `letters`, function `get_public_letter(slug text)`, functions `link_partners(code text)` and `handle_new_user()`
 
 - [ ] **Step 1: Write the schema**
 
@@ -1986,7 +1986,13 @@ In the Supabase dashboard's SQL editor, run:
 set role anon;
 select * from letters;          -- expect: 0 rows (RLS blocks anonymous reads)
 select * from profiles;         -- expect: 0 rows
-select * from public_letters;   -- expect: 0 rows now; shared letters appear here later
+reset role;
+
+-- The column grant is what stops a user pointing themselves at a stranger.
+-- Checked before RLS, so it must fail even for an authenticated caller.
+set role authenticated;
+update profiles set partner_id = '00000000-0000-4000-8000-000000000000';
+-- expect: ERROR permission denied for column "partner_id"
 reset role;
 ```
 

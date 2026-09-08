@@ -7,7 +7,7 @@ import { useAuth } from '../auth/useAuth'
  * named themselves to /setup, so the app never renders "Dear ," to anyone.
  */
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const { userId, profile, loading } = useAuth()
+  const { userId, profile, loading, error, signOut } = useAuth()
   const location = useLocation()
 
   // A signed-in user whose profile has not arrived yet is NOT "set up
@@ -18,6 +18,20 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   // redirect for a brand-new account. Against the mock the window is zero;
   // behind Supabase it is a network round trip.
   if (loading || (userId !== null && profile === null)) {
+    if (error !== null) {
+      return (
+        <div className="py-20 text-center">
+          <p role="alert" className="font-ui text-sm text-accent">{error}</p>
+          <button
+            type="button"
+            onClick={() => void signOut()}
+            className="mt-4 font-ui text-sm text-ink-muted underline underline-offset-4 hover:text-accent"
+          >
+            Sign out
+          </button>
+        </div>
+      )
+    }
     return <p className="py-20 text-center font-ui text-sm text-ink-muted">One moment…</p>
   }
 

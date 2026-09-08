@@ -26,31 +26,41 @@ create table if not exists letters (
 create index if not exists letters_receiver_created_idx
   on letters (receiver_id, created_at desc);
 
-create index if not exists letters_share_slug_idx
-  on letters (share_slug) where share_slug is not null;
+-- Base58-ish: no 0, O, I or l, so a code read off a screen is unambiguous.
+-- Uses the CSPRNG rather than random(): this is a bearer credential, and the
+-- app is already careful to use one for share slugs.
+create or replace function new_invite_code()
+returns text
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  alphabet constant text := '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  code text;
+begin
+  loop
+    code := '';
+    for i in 1..8 loop
+      code := code || substr(alphabet, (get_byte(gen_random_bytes(1), 0) % 58) + 1, 1);
+    end loop;
+    exit when not exists (select 1 from profiles where invite_code = code);
+  end loop;
+  return code;
+end;
+$$;
+
+revoke all on function new_invite_code() from public;
 
 -- A new auth user gets a profile automatically, with a random invite code.
--- Base58-ish: no 0, O, I or l, so a code read off a screen is unambiguous.
 create or replace function handle_new_user()
 returns trigger
 language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
-declare
-  code text;
 begin
-  loop
-    code := array_to_string(array(
-      select substr('123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz',
-                    (floor(random() * 58) + 1)::int, 1)
-      from generate_series(1, 8)
-    ), '');
-    exit when not exists (select 1 from profiles where invite_code = code);
-  end loop;
-
-  insert into profiles (id, full_name, invite_code)
-  values (new.id, '', code);
+  insert into profiles (id, full_name, invite_code) values (new.id, '', new_invite_code());
   return new;
 end;
 $$;
@@ -69,21 +79,34 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
-  me    profiles;
-  other profiles;
+  me_id    uuid := auth.uid();
+  other_id uuid;
+  me       profiles;
+  other    profiles;
 begin
-  -- Lock both rows: two people redeeming the same code concurrently would
-  -- otherwise both see partner_id null, both pass, and the last write would
-  -- win — leaving A pointing at B while B points at C.
-  select * into me from profiles where id = auth.uid() for update;
+  select id into other_id from profiles where invite_code = code;
+  if other_id is null then
+    raise exception 'INVALID_CODE';
+  end if;
+
+  -- Lock both rows, LOWER uuid first: two people redeeming each other's
+  -- codes concurrently would otherwise each lock their own row first and
+  -- then block waiting for the other's — a mutual-redeem deadlock. Locking
+  -- in one canonical order across all callers rules that out.
+  if me_id < other_id then
+    select * into me    from profiles where id = me_id    for update;
+    select * into other from profiles where id = other_id for update;
+  else
+    select * into other from profiles where id = other_id for update;
+    select * into me    from profiles where id = me_id    for update;
+  end if;
+
   if me is null then
     raise exception 'PROFILE_NOT_FOUND';
   end if;
   if me.partner_id is not null then
     raise exception 'ALREADY_LINKED';
   end if;
-
-  select * into other from profiles where invite_code = code for update;
   if other is null then
     raise exception 'INVALID_CODE';
   end if;
@@ -101,6 +124,44 @@ begin
   return me;
 end;
 $$;
+
+-- Recovery path. An invite code is a bearer credential with no expiry, so a
+-- link redeemed by the wrong person is otherwise permanent — partner_id is
+-- outside the app's column grant and nothing in the UI can undo it. No UI
+-- calls this yet; having it means one statement fixes a mis-pairing instead
+-- of hand-editing rows.
+create or replace function unlink_partner()
+returns profiles
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  me    profiles;
+  other profiles;
+begin
+  select * into me from profiles where id = auth.uid() for update;
+  if not found then
+    raise exception 'PROFILE_NOT_FOUND';
+  end if;
+
+  if me.partner_id is not null then
+    select * into other from profiles where id = me.partner_id for update;
+    -- Rotate both codes: the old link may be why they are unlinking.
+    update profiles set partner_id = null, invite_code = new_invite_code()
+      where id = other.id;
+  end if;
+
+  update profiles set partner_id = null, invite_code = new_invite_code()
+    where id = me.id;
+
+  select * into me from profiles where id = me.id;
+  return me;
+end;
+$$;
+
+revoke all on function unlink_partner() from public;
+grant execute on function unlink_partner() to authenticated;
 
 -- The anonymous reader's path to a shared letter.
 --

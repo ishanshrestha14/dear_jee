@@ -5,6 +5,11 @@
 alter table profiles enable row level security;
 alter table letters  enable row level security;
 
+-- Defense in depth: anon is stopped today only by the absence of a policy.
+-- Make the deny explicit rather than emergent.
+revoke all on profiles from anon;
+revoke all on letters from anon;
+
 -- ---------- profiles ----------
 
 drop policy if exists profiles_select_self_or_partner on profiles;

@@ -72,9 +72,21 @@ function linkErrorMessage(raw: string): string {
 function letterErrorMessage(raw: string): string {
   if (raw.includes('IMMUTABLE_COLUMN')) return 'A sent letter cannot be edited.'
   if (raw.includes('ONLY_RECEIVER_MAY_READ')) return 'Only the person it was written to can open it.'
+  if (raw.includes('new row violates')) return 'You are not connected to anyone yet.'
   if (raw.includes('row-level security')) return 'You do not have access to that letter.'
-  if (raw.includes('violates check constraint')) return 'That letter is too long to send.'
+  if (raw.includes('violates check constraint')) return 'This letter is a little too long to send.'
   if (import.meta.env.DEV) console.error('[dear-jee] unmapped repository error', raw)
+  return 'Something went wrong. Please try again.'
+}
+
+/**
+ * Postgres error text is a diagnostic, not product copy. The raw message is
+ * logged in dev; the user gets something they can act on.
+ */
+function profileErrorMessage(raw: string): string {
+  if (raw.includes('permission denied')) return 'That change is not allowed.'
+  if (raw.includes('row-level security')) return 'You do not have access to that profile.'
+  if (import.meta.env.DEV) console.error('[dear-jee] unmapped profile error', raw)
   return 'Something went wrong. Please try again.'
 }
 
@@ -207,7 +219,7 @@ export function createSupabaseRepositories(): {
           .select('*')
           .eq('id', id)
           .maybeSingle()
-        if (error) return fail(error.message)
+        if (error) return fail(profileErrorMessage(error.message))
         if (data === null) return fail('Profile not found.')
         return ok(toProfile(data as ProfileRow))
       })
@@ -220,7 +232,7 @@ export function createSupabaseRepositories(): {
           .select('*')
           .eq('invite_code', inviteCode)
           .maybeSingle()
-        if (error) return fail(error.message)
+        if (error) return fail(profileErrorMessage(error.message))
         if (data === null) return fail('That invite link is not valid.')
         return ok(toProfile(data as ProfileRow))
       })
@@ -236,7 +248,7 @@ export function createSupabaseRepositories(): {
           .eq('id', userId)
           .select()
           .maybeSingle()
-        if (error) return fail(error.message)
+        if (error) return fail(profileErrorMessage(error.message))
         if (data === null) return fail('Profile not found.')
         return ok(toProfile(data as ProfileRow))
       })
