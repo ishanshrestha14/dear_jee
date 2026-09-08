@@ -1316,7 +1316,14 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   const { userId, profile, loading } = useAuth()
   const location = useLocation()
 
-  if (loading) {
+  // A signed-in user whose profile has not arrived yet is NOT "set up
+  // already" — it is not known yet. AuthProvider sets userId synchronously
+  // from onAuthStateChange and loads the profile afterwards, so without this
+  // second condition there is a window where children render with no profile:
+  // the "Dear ," flash this guard exists to prevent, and a skipped /setup
+  // redirect for a brand-new account. Against the mock the window is zero;
+  // behind Supabase it is a network round trip.
+  if (loading || (userId !== null && profile === null)) {
     return <p className="py-20 text-center font-ui text-sm text-ink-muted">One moment…</p>
   }
 
