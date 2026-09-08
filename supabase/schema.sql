@@ -157,8 +157,8 @@ $$;
 revoke all on function current_partner_id() from public;
 grant execute on function current_partner_id() to authenticated;
 
--- Enforces the column split RLS cannot express: the receiver may only flip
--- is_read; the sender may only publish. Without this, a receiver could
+-- Enforces what RLS cannot express: which COLUMNS each participant may
+-- change. Without this, a receiver could
 -- rewrite the sender's words, and either party could re-point receiver_id
 -- into a stranger's inbox — defeating the insert policy's partner check.
 create or replace function enforce_letter_update()
@@ -179,12 +179,11 @@ begin
     raise exception 'ONLY_RECEIVER_MAY_READ';
   end if;
 
-  if (new.is_public is distinct from old.is_public
-      or new.share_slug is distinct from old.share_slug)
-     and auth.uid() <> old.sender_id then
-    raise exception 'ONLY_SENDER_MAY_SHARE';
-  end if;
-
+  -- Either participant may share. The share button lives in the Letter
+  -- View, which shows RECEIVED letters, so the person sharing is normally
+  -- the receiver — "look what they wrote me" is the feature, not a leak.
+  -- The correspondence belongs to both of them; what they must NOT be able
+  -- to do is rewrite it or re-address it, which the checks above prevent.
   return new;
 end;
 $$;
