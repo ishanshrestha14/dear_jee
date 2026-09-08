@@ -84,3 +84,15 @@ restrict` and a soft-delete column BEFORE any account-deletion feature ships.
 **`link_partners` uses `if me is null` rather than `if not found`.** Works for a
 composite variable; `if not found` is the idiom and is robust to an all-null
 row. Cosmetic.
+
+## Deferred from the Phase 3 Task 4 review
+
+**`getByInviteCode` cannot see a stranger's profile under RLS.** The
+`profiles` select policy admits only your own row and your partner's, so
+looking up an unlinked person by invite code returns nothing and the method
+reports "That invite link is not valid." for a perfectly valid code. Nothing
+calls it: `JoinPartner` uses `linkPartner`, which is `security definer` and
+bypasses RLS, and `InviteLink` reads the user's own profile. Do NOT build a
+pre-link partner preview on this method — making it work would require a
+security-definer lookup that turns invite codes into a name-enumeration
+oracle. Use a different mechanism if that feature is ever wanted.
