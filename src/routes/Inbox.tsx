@@ -4,10 +4,13 @@ import { Link } from 'react-router-dom'
 import { LetterCard } from '../components/LetterCard'
 import { LetterModal } from '../components/LetterModal'
 import { useLetters } from '../hooks/useLetters'
+import { useAuth } from '../auth/useAuth'
+import { InviteLink } from '../components/InviteLink'
 import type { Letter } from '../data/types'
 
 export default function Inbox() {
   const { letters, partnerName, loading, error, markRead } = useLetters()
+  const { profile } = useAuth()
   const [open, setOpen] = useState<Letter | null>(null)
 
   function handleOpen(letter: Letter) {
@@ -24,18 +27,29 @@ export default function Inbox() {
   }
 
   if (letters.length === 0) {
+    const unlinked = profile !== null && profile.partnerId === null
+
     return (
       <div className="py-24 text-center">
-        <p className="font-hand text-3xl text-ink-ui">No letters yet</p>
-        <p className="mx-auto mt-3 max-w-sm font-letter text-ink-letter">
-          When {partnerName || 'they'} write to you, it will arrive here.
+        <p className="font-hand text-3xl text-ink-ui">
+          {unlinked ? 'Just you so far' : 'No letters yet'}
         </p>
-        <Link
-          to="/compose"
-          className="mt-8 inline-block rounded-full bg-accent px-6 py-2.5 font-ui text-sm font-medium text-paper-app transition-shadow hover:shadow-letter-lifted"
-        >
-          Write the first one
-        </Link>
+        <p className="mx-auto mt-3 max-w-sm font-letter text-ink-letter">
+          {unlinked
+            ? 'Send them this link. Once they open it, you can write to each other.'
+            : `When ${partnerName || 'they'} write to you, it will arrive here.`}
+        </p>
+
+        {unlinked && profile !== null ? (
+          <InviteLink inviteCode={profile.inviteCode} />
+        ) : (
+          <Link
+            to="/compose"
+            className="mt-8 inline-block rounded-full bg-accent px-6 py-2.5 font-ui text-sm font-medium text-paper-app transition-shadow hover:shadow-letter-lifted"
+          >
+            Write the first one
+          </Link>
+        )}
       </div>
     )
   }

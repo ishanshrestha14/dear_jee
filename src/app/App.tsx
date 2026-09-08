@@ -7,6 +7,7 @@ import Inbox from '../routes/Inbox'
 import Compose from '../routes/Compose'
 import AuthScreen from '../routes/AuthScreen'
 import SetupProfile from '../routes/SetupProfile'
+import JoinPartner from '../routes/JoinPartner'
 
 export default function App() {
   return (
@@ -37,6 +38,14 @@ export default function App() {
                 element={
                   <RequireAuth>
                     <Compose />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/join/:inviteCode"
+                element={
+                  <RequireAuth>
+                    <JoinPartner />
                   </RequireAuth>
                 }
               />
