@@ -28,17 +28,35 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
       fx = await setup()
     })
 
-    describe('listReceived', () => {
-      it('returns only letters addressed to the user', async () => {
-        const { data } = await fx.letters.listReceived(fx.userId)
+    describe('listConversation', () => {
+      it('returns letters the user received', async () => {
+        const { data } = await fx.letters.listConversation(fx.userId)
         expect(data!.length).toBeGreaterThan(0)
-        expect(data!.every((l) => l.receiverId === fx.userId)).toBe(true)
+        expect(data!.some((l) => l.receiverId === fx.userId)).toBe(true)
+      })
+
+      it('also returns letters the user SENT', async () => {
+        const sent = await fx.letters.send({
+          senderId: fx.userId,
+          receiverId: fx.partnerId,
+          message: 'Something I wrote.',
+        })
+        const { data } = await fx.letters.listConversation(fx.userId)
+        expect(data!.some((l) => l.id === sent.data!.id)).toBe(true)
       })
 
       it('orders newest first', async () => {
-        const { data } = await fx.letters.listReceived(fx.userId)
+        const { data } = await fx.letters.listConversation(fx.userId)
         const times = data!.map((l) => Date.parse(l.createdAt))
         expect([...times].sort((a, b) => b - a)).toEqual(times)
+      })
+
+      it('excludes letters this user archived', async () => {
+        const { data: before } = await fx.letters.listConversation(fx.userId)
+        const target = before![0]
+        await fx.letters.setArchived(target.id, fx.userId, true)
+        const { data: after } = await fx.letters.listConversation(fx.userId)
+        expect(after!.some((l) => l.id === target.id)).toBe(false)
       })
     })
 
@@ -90,6 +108,73 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
 
       it('reports a missing letter rather than throwing', async () => {
         const result = await fx.letters.markRead('00000000-0000-4000-8000-000000000000')
+        expect(result.data).toBeNull()
+        expect(result.error).toBe('Letter not found.')
+      })
+    })
+
+    describe('archive', () => {
+      it('moves the letter to the archive listing', async () => {
+        const { data: inbox } = await fx.letters.listConversation(fx.userId)
+        const target = inbox![0]
+        await fx.letters.setArchived(target.id, fx.userId, true)
+        const { data: archived } = await fx.letters.listArchived(fx.userId)
+        expect(archived!.some((l) => l.id === target.id)).toBe(true)
+      })
+
+      it('is reversible', async () => {
+        const { data: inbox } = await fx.letters.listConversation(fx.userId)
+        const target = inbox![0]
+        await fx.letters.setArchived(target.id, fx.userId, true)
+        await fx.letters.setArchived(target.id, fx.userId, false)
+        const { data: after } = await fx.letters.listConversation(fx.userId)
+        expect(after!.some((l) => l.id === target.id)).toBe(true)
+      })
+
+      it('does NOT archive it for the other person', async () => {
+        const sent = await fx.letters.send({
+          senderId: fx.userId,
+          receiverId: fx.partnerId,
+          message: 'Still yours.',
+        })
+        await fx.letters.setArchived(sent.data!.id, fx.userId, true)
+        const { data: theirs } = await fx.letters.listConversation(fx.partnerId)
+        expect(theirs!.some((l) => l.id === sent.data!.id)).toBe(true)
+      })
+    })
+
+    describe('deleteForMe', () => {
+      it('removes the letter from this user only', async () => {
+        const sent = await fx.letters.send({
+          senderId: fx.userId,
+          receiverId: fx.partnerId,
+          message: 'Gone from my side.',
+        })
+        await fx.letters.deleteForMe(sent.data!.id, fx.userId)
+
+        const { data: mine } = await fx.letters.listConversation(fx.userId)
+        expect(mine!.some((l) => l.id === sent.data!.id)).toBe(false)
+
+        const { data: theirs } = await fx.letters.listConversation(fx.partnerId)
+        expect(theirs!.some((l) => l.id === sent.data!.id)).toBe(true)
+      })
+
+      it('keeps it out of the archive too', async () => {
+        const sent = await fx.letters.send({
+          senderId: fx.userId,
+          receiverId: fx.partnerId,
+          message: 'Not in the archive either.',
+        })
+        await fx.letters.deleteForMe(sent.data!.id, fx.userId)
+        const { data: archived } = await fx.letters.listArchived(fx.userId)
+        expect(archived!.some((l) => l.id === sent.data!.id)).toBe(false)
+      })
+
+      it('reports a missing letter rather than throwing', async () => {
+        const result = await fx.letters.deleteForMe(
+          '00000000-0000-4000-8000-000000000000',
+          fx.userId,
+        )
         expect(result.data).toBeNull()
         expect(result.error).toBe('Letter not found.')
       })
@@ -152,7 +237,7 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
         const partner = await fx.profiles.getById(fx.partnerId)
         const result = await fx.profiles.linkPartner(fx.userId, partner.data!.inviteCode)
         expect(result.data).toBeNull()
-        expect(result.error).toBe('You are already connected.')
+        expect(result.error).toBe('You are already connected to someone.')
       })
 
       it('refuses to link a profile to itself', async () => {
