@@ -159,12 +159,20 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
         expect(theirs!.some((l) => l.id === sent.data!.id)).toBe(true)
       })
 
-      it('keeps it out of the archive too', async () => {
+      it('removes it from the archive as well, when it was archived', async () => {
         const sent = await fx.letters.send({
           senderId: fx.userId,
           receiverId: fx.partnerId,
           message: 'Not in the archive either.',
         })
+        // Archive FIRST. Deleting a letter that was never archived and then
+        // asserting it is absent from the archive is a tautology — it would
+        // pass against a deleteForMe that did nothing at all. Archiving first
+        // is what makes this test the interaction it claims to be.
+        await fx.letters.setArchived(sent.data!.id, fx.userId, true)
+        const { data: before } = await fx.letters.listArchived(fx.userId)
+        expect(before!.some((l) => l.id === sent.data!.id)).toBe(true)
+
         await fx.letters.deleteForMe(sent.data!.id, fx.userId)
         const { data: archived } = await fx.letters.listArchived(fx.userId)
         expect(archived!.some((l) => l.id === sent.data!.id)).toBe(false)
