@@ -131,6 +131,7 @@ export function createMockRepositories(options: MockOptions = {}): {
     async setArchived(letterId, userId, archived) {
       const letter = letters.find((l) => l.id === letterId)
       if (!letter) return fail('Letter not found.')
+      if (!visibleTo(letter, userId)) return fail('Letter not found.')
       const at = archived ? new Date().toISOString() : null
       if (letter.senderId === userId) letter.senderArchivedAt = at
       else if (letter.receiverId === userId) letter.receiverArchivedAt = at
@@ -141,6 +142,7 @@ export function createMockRepositories(options: MockOptions = {}): {
     async deleteForMe(letterId, userId) {
       const letter = letters.find((l) => l.id === letterId)
       if (!letter) return fail('Letter not found.')
+      if (!visibleTo(letter, userId)) return fail('Letter not found.')
       const at = new Date().toISOString()
       if (letter.senderId === userId) letter.senderDeletedAt = at
       else if (letter.receiverId === userId) letter.receiverDeletedAt = at

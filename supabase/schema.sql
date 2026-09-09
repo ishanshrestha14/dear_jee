@@ -228,6 +228,23 @@ begin
     update letters
        set receiver_archived_at = coalesce(receiver_archived_at, now())
      where receiver_id = other.id and sender_id = me.id;
+
+    -- Freeze both names as they are now. The UI resolves an author through a
+    -- single partnerName that empties when partner_id goes null, so without
+    -- this every archived letter would show a blank author the moment the two
+    -- unlink — the exact problem this change exists to fix.
+    update letters
+       set sender_name   = coalesce(sender_name, me.full_name)
+     where sender_id = me.id and receiver_id = other.id;
+    update letters
+       set receiver_name = coalesce(receiver_name, me.full_name)
+     where receiver_id = me.id and sender_id = other.id;
+    update letters
+       set sender_name   = coalesce(sender_name, other.full_name)
+     where sender_id = other.id and receiver_id = me.id;
+    update letters
+       set receiver_name = coalesce(receiver_name, other.full_name)
+     where receiver_id = other.id and sender_id = me.id;
   end if;
 
   update profiles set partner_id = null, invite_code = new_invite_code()
@@ -281,6 +298,9 @@ create trigger profiles_freeze_letters
 --
 -- Returns exactly the four columns the spec allows an anonymous reader to
 -- see. Ids and emails are unreachable from here.
+--
+-- The joins are LEFT joins so a shared letter survives its author's account
+-- deletion, falling back to the frozen name rather than disappearing.
 create or replace function get_public_letter(slug text)
 returns table (
   message       text,
@@ -293,10 +313,13 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
-  select l.message, l.created_at, sender.full_name, receiver.full_name
+  select l.message,
+         l.created_at,
+         coalesce(sender.full_name, l.sender_name),
+         coalesce(receiver.full_name, l.receiver_name)
   from letters l
-  join profiles sender   on sender.id   = l.sender_id
-  join profiles receiver on receiver.id = l.receiver_id
+  left join profiles sender   on sender.id   = l.sender_id
+  left join profiles receiver on receiver.id = l.receiver_id
   where l.share_slug = slug and l.is_public = true
 $$;
 

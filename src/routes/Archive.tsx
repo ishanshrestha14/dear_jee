@@ -8,7 +8,7 @@ import { useAuth } from '../auth/useAuth'
 import type { Letter } from '../data/types'
 
 export default function Archive() {
-  const { archived, partnerName, loading, setArchived, deleteForMe } = useLetters()
+  const { archived, partnerName, loading, error, setArchived, deleteForMe } = useLetters()
   const { userId, profile } = useAuth()
   const [open, setOpen] = useState<Letter | null>(null)
 
@@ -20,6 +20,10 @@ export default function Archive() {
 
   if (loading) {
     return <p className="py-20 text-center font-ui text-sm text-ink-muted">One moment…</p>
+  }
+
+  if (error !== null) {
+    return <p className="py-20 text-center font-ui text-sm text-accent">{error}</p>
   }
 
   if (archived.length === 0) {

@@ -102,8 +102,11 @@ export function useLetters(): UseLetters {
     async (id, next) => {
       if (userId === null) return
       const result = await letterRepository.setArchived(id, userId, next)
-      if (result.error !== null) setError(result.error)
+      // The error is set AFTER the reload, not before: load() clears the error
+      // whenever both fetches succeed, which would otherwise wipe this one
+      // within a render of it being set.
       await load(userId)
+      if (result.error !== null) setError(result.error)
     },
     [userId, load],
   )
@@ -112,8 +115,11 @@ export function useLetters(): UseLetters {
     async (id) => {
       if (userId === null) return
       const result = await letterRepository.deleteForMe(id, userId)
-      if (result.error !== null) setError(result.error)
+      // The error is set AFTER the reload, not before: load() clears the error
+      // whenever both fetches succeed, which would otherwise wipe this one
+      // within a render of it being set.
       await load(userId)
+      if (result.error !== null) setError(result.error)
     },
     [userId, load],
   )
