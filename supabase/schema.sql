@@ -126,7 +126,7 @@ begin
     raise exception 'OWN_CODE';
   end if;
   if other.partner_id is not null then
-    raise exception 'ALREADY_LINKED';
+    raise exception 'LINK_ALREADY_USED';
   end if;
 
   update profiles set partner_id = other.id where id = me.id;
@@ -262,11 +262,21 @@ language plpgsql
 set search_path = public, pg_temp
 as $$
 begin
-  if new.sender_id is distinct from old.sender_id
-     or new.receiver_id is distinct from old.receiver_id
-     or new.message is distinct from old.message
+  if new.message is distinct from old.message
      or new.created_at is distinct from old.created_at
      or new.id is distinct from old.id then
+    raise exception 'IMMUTABLE_COLUMN';
+  end if;
+
+  -- sender_id and receiver_id may go to NULL and nowhere else. That single
+  -- transition is the `on delete set null` action firing when a profile is
+  -- deleted: the letter outlives its author. Any other change would
+  -- re-address the letter, which is the attack the column grants and this
+  -- check exist to stop.
+  if new.sender_id is distinct from old.sender_id and new.sender_id is not null then
+    raise exception 'IMMUTABLE_COLUMN';
+  end if;
+  if new.receiver_id is distinct from old.receiver_id and new.receiver_id is not null then
     raise exception 'IMMUTABLE_COLUMN';
   end if;
 
@@ -274,11 +284,32 @@ begin
     raise exception 'ONLY_RECEIVER_MAY_READ';
   end if;
 
-  -- Either participant may share. The share button lives in the Letter
-  -- View, which shows RECEIVED letters, so the person sharing is normally
-  -- the receiver — "look what they wrote me" is the feature, not a leak.
-  -- The correspondence belongs to both of them; what they must NOT be able
-  -- to do is rewrite it or re-address it, which the checks above prevent.
+  -- Each side owns its own archive and delete state and nobody else's —
+  -- but ONLY when the update comes straight from a client.
+  --
+  -- `unlink_partner` and `freeze_profile_letters` are security definer and
+  -- archive BOTH people's sides on their behalf. Inside them current_user is
+  -- the function owner, not `authenticated`, while auth.uid() still reads the
+  -- caller's JWT — so without this guard the per-side rule below would fire on
+  -- the partner's row and make unlinking, and account deletion, fail outright.
+  -- PostgREST sets the role to `authenticated` for a signed-in request, which
+  -- is the same role every grant in this file already names.
+  if current_user = 'authenticated' then
+    if (new.sender_archived_at is distinct from old.sender_archived_at
+        or new.sender_deleted_at is distinct from old.sender_deleted_at)
+       and auth.uid() is distinct from old.sender_id then
+      raise exception 'NOT_YOUR_SIDE';
+    end if;
+    if (new.receiver_archived_at is distinct from old.receiver_archived_at
+        or new.receiver_deleted_at is distinct from old.receiver_deleted_at)
+       and auth.uid() is distinct from old.receiver_id then
+      raise exception 'NOT_YOUR_SIDE';
+    end if;
+  end if;
+
+  -- Either participant may share. The correspondence belongs to both of
+  -- them; what they must NOT be able to do is rewrite it or re-address it,
+  -- which the checks above prevent.
   return new;
 end;
 $$;
