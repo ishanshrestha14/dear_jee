@@ -12,8 +12,8 @@ create table if not exists profiles (
 
 create table if not exists letters (
   id          uuid primary key default gen_random_uuid(),
-  sender_id   uuid        not null references profiles(id) on delete cascade,
-  receiver_id uuid        not null references profiles(id) on delete cascade,
+  sender_id   uuid        references profiles(id) on delete set null,
+  receiver_id uuid        references profiles(id) on delete set null,
   -- The mock enforced this in the repository. The Supabase adapter cannot,
   -- and RLS does not inspect content, so the guarantee lives here instead.
   message     text        not null check (char_length(message) between 1 and 5000),
@@ -22,6 +22,34 @@ create table if not exists letters (
   share_slug  text        unique,
   is_public   boolean     not null default false
 );
+
+-- Added after the initial release, so these are alters rather than columns in
+-- the create above: a live database already exists and this file must migrate
+-- it in place.
+alter table letters add column if not exists sender_archived_at   timestamptz;
+alter table letters add column if not exists receiver_archived_at timestamptz;
+alter table letters add column if not exists sender_deleted_at    timestamptz;
+alter table letters add column if not exists receiver_deleted_at  timestamptz;
+-- Null while the person still exists; names then resolve live from profiles so
+-- an edited name updates every letter. Frozen only when they leave.
+alter table letters add column if not exists sender_name   text;
+alter table letters add column if not exists receiver_name text;
+
+alter table letters alter column sender_id   drop not null;
+alter table letters alter column receiver_id drop not null;
+
+-- The keys were `on delete cascade`, which meant one person deleting their
+-- account destroyed the other person's letters too. They now go to null: the
+-- account goes, the letters stay.
+alter table letters drop constraint if exists letters_sender_id_fkey;
+alter table letters add  constraint letters_sender_id_fkey
+  foreign key (sender_id) references profiles(id) on delete set null;
+alter table letters drop constraint if exists letters_receiver_id_fkey;
+alter table letters add  constraint letters_receiver_id_fkey
+  foreign key (receiver_id) references profiles(id) on delete set null;
+
+create index if not exists letters_participants_created_idx
+  on letters (sender_id, receiver_id, created_at desc);
 
 create index if not exists letters_receiver_created_idx
   on letters (receiver_id, created_at desc);
@@ -184,6 +212,22 @@ begin
     -- Rotate both codes: the old link may be why they are unlinking.
     update profiles set partner_id = null, invite_code = new_invite_code()
       where id = other.id;
+
+    -- A breakup moves the correspondence to both people's archives. Doing it
+    -- here rather than in the client means it is atomic: it cannot half-apply
+    -- because someone closed a tab.
+    update letters
+       set sender_archived_at   = coalesce(sender_archived_at, now())
+     where sender_id = me.id and receiver_id = other.id;
+    update letters
+       set receiver_archived_at = coalesce(receiver_archived_at, now())
+     where receiver_id = me.id and sender_id = other.id;
+    update letters
+       set sender_archived_at   = coalesce(sender_archived_at, now())
+     where sender_id = other.id and receiver_id = me.id;
+    update letters
+       set receiver_archived_at = coalesce(receiver_archived_at, now())
+     where receiver_id = other.id and sender_id = me.id;
   end if;
 
   update profiles set partner_id = null, invite_code = new_invite_code()
@@ -196,6 +240,36 @@ $$;
 
 revoke all on function unlink_partner() from public;
 grant execute on function unlink_partner() to authenticated;
+
+-- When someone leaves, their letters must not leave with them. This freezes
+-- the name as it was at that moment and archives the survivor's side, so the
+-- correspondence moves quietly to the archive rather than sitting in the
+-- timeline with a blank name on it.
+create or replace function freeze_profile_letters()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  update letters
+     set sender_name = coalesce(sender_name, old.full_name),
+         receiver_archived_at = coalesce(receiver_archived_at, now())
+   where sender_id = old.id;
+
+  update letters
+     set receiver_name = coalesce(receiver_name, old.full_name),
+         sender_archived_at = coalesce(sender_archived_at, now())
+   where receiver_id = old.id;
+
+  return old;
+end;
+$$;
+
+drop trigger if exists profiles_freeze_letters on profiles;
+create trigger profiles_freeze_letters
+  before delete on profiles
+  for each row execute function freeze_profile_letters();
 
 -- The anonymous reader's path to a shared letter.
 --
