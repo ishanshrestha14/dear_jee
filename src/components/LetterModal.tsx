@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { X } from 'lucide-react'
 import { PaperTexture } from '../design/PaperTexture'
@@ -7,9 +7,12 @@ import type { Letter } from '../data/types'
 
 interface LetterModalProps {
   letter: Letter
-  senderName: string
-  receiverName: string
+  authorName: string
+  recipientName: string
+  archived: boolean
   onClose: () => void
+  onArchive: () => void
+  onDelete: () => void
 }
 
 /**
@@ -20,8 +23,9 @@ interface LetterModalProps {
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
-export function LetterModal({ letter, senderName, receiverName, onClose }: LetterModalProps) {
+export function LetterModal({ letter, authorName, recipientName, archived, onClose, onArchive, onDelete }: LetterModalProps) {
   const panelRef = useRef<HTMLDivElement>(null)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null
@@ -73,7 +77,7 @@ export function LetterModal({ letter, senderName, receiverName, onClose }: Lette
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label={`Letter from ${senderName}`}
+      aria-label={`Letter from ${authorName}`}
     >
       <div className="fixed inset-0 bg-ink-ui/25 backdrop-blur-[2px]" aria-hidden />
 
@@ -95,17 +99,58 @@ export function LetterModal({ letter, senderName, receiverName, onClose }: Lette
             <X size={18} />
           </button>
 
-          <p className="font-letter text-lg text-ink-letter">Dear {receiverName},</p>
+          <p className="font-letter text-lg text-ink-letter">Dear {recipientName},</p>
 
           <p className="mt-6 whitespace-pre-wrap font-letter text-[17px] leading-[1.85] text-ink-letter">
             {letter.message}
           </p>
 
           <div className="mt-10 text-right">
-            <p className="font-hand text-3xl text-ink-ui">With love, {senderName}</p>
+            <p className="font-hand text-3xl text-ink-ui">With love, {authorName}</p>
             <p className="mt-2 font-ui text-xs tracking-wide text-ink-muted">
               {formatLetterDate(letter.createdAt)}
             </p>
+          </div>
+
+          <div className="mt-10 flex items-center justify-end gap-4 border-t border-paper-edge pt-5">
+            {confirmingDelete ? (
+              <>
+                <span className="font-ui text-xs text-ink-muted">
+                  Delete this letter permanently?
+                </span>
+                <button
+                  type="button"
+                  onClick={onDelete}
+                  className="font-ui text-xs text-accent underline underline-offset-4"
+                >
+                  Delete
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingDelete(false)}
+                  className="font-ui text-xs text-ink-muted underline underline-offset-4"
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={onArchive}
+                  className="font-ui text-xs text-ink-muted underline underline-offset-4 transition-colors hover:text-accent"
+                >
+                  {archived ? 'Move back' : 'Archive'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingDelete(true)}
+                  className="font-ui text-xs text-ink-muted underline underline-offset-4 transition-colors hover:text-accent"
+                >
+                  Delete
+                </button>
+              </>
+            )}
           </div>
         </PaperTexture>
       </motion.div>

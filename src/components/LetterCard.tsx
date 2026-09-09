@@ -5,12 +5,15 @@ import type { Letter } from '../data/types'
 
 interface LetterCardProps {
   letter: Letter
-  senderName: string
+  /** Whoever wrote it — hers on hers, yours on yours. */
+  authorName: string
+  /** Only ever true for a letter you received and have not opened. */
+  unread: boolean
   onOpen: (letter: Letter) => void
 }
 
 /** Inbox preview. Hover lifts the shadow rather than moving the card. */
-export function LetterCard({ letter, senderName, onOpen }: LetterCardProps) {
+export function LetterCard({ letter, authorName, unread, onOpen }: LetterCardProps) {
   return (
     <motion.button
       type="button"
@@ -24,8 +27,8 @@ export function LetterCard({ letter, senderName, onOpen }: LetterCardProps) {
     >
       <PaperTexture className="p-6 sm:p-7">
         <div className="flex items-start justify-between gap-4">
-          <span className="font-hand text-2xl text-ink-ui">{senderName}</span>
-          {!letter.isRead && (
+          <span className="font-hand text-2xl text-ink-ui">{authorName}</span>
+          {unread && (
             <span
               role="img"
               aria-label="Unread"

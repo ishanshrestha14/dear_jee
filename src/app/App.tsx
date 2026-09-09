@@ -5,6 +5,7 @@ import { RequireAuth } from '../components/RequireAuth'
 import { Layout } from '../components/Layout'
 import Inbox from '../routes/Inbox'
 import Compose from '../routes/Compose'
+import Archive from '../routes/Archive'
 import AuthScreen from '../routes/AuthScreen'
 import SetupProfile from '../routes/SetupProfile'
 import JoinPartner from '../routes/JoinPartner'
@@ -38,6 +39,14 @@ export default function App() {
                 element={
                   <RequireAuth>
                     <Compose />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/archive"
+                element={
+                  <RequireAuth>
+                    <Archive />
                   </RequireAuth>
                 }
               />

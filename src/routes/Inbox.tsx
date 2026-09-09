@@ -9,9 +9,19 @@ import { InviteLink } from '../components/InviteLink'
 import type { Letter } from '../data/types'
 
 export default function Inbox() {
-  const { letters, partnerName, loading, error, markRead } = useLetters()
-  const { profile } = useAuth()
+  const { letters, archived, partnerName, loading, error, markRead, setArchived, deleteForMe } = useLetters()
+  const { userId, profile } = useAuth()
   const [open, setOpen] = useState<Letter | null>(null)
+
+  const authorOf = (letter: Letter): string => {
+    if (letter.senderId === userId) return profile?.fullName ?? 'You'
+    return letter.senderName ?? partnerName ?? ''
+  }
+
+  const recipientOf = (letter: Letter): string => {
+    if (letter.receiverId === userId) return profile?.fullName ?? 'you'
+    return letter.receiverName ?? partnerName ?? ''
+  }
 
   function handleOpen(letter: Letter) {
     setOpen(letter)
@@ -50,18 +60,40 @@ export default function Inbox() {
             Write the first one
           </Link>
         )}
+
+        {archived.length > 0 && (
+          <p className="mt-8 font-ui text-sm text-ink-muted">
+            Your letters with them are in the{' '}
+            <Link to="/archive" className="underline underline-offset-4 hover:text-accent">
+              archive
+            </Link>
+            .
+          </p>
+        )}
       </div>
     )
   }
 
   return (
     <>
+      {archived.length > 0 && (
+        <div className="mb-6 text-right">
+          <Link
+            to="/archive"
+            className="font-ui text-xs text-ink-muted underline underline-offset-4 hover:text-accent"
+          >
+            Archive
+          </Link>
+        </div>
+      )}
+
       <div className="grid gap-5 sm:grid-cols-2">
         {letters.map((letter) => (
           <LetterCard
             key={letter.id}
             letter={letter}
-            senderName={partnerName}
+            authorName={authorOf(letter)}
+            unread={letter.receiverId === userId && !letter.isRead}
             onOpen={handleOpen}
           />
         ))}
@@ -70,9 +102,18 @@ export default function Inbox() {
         {open && (
           <LetterModal
             letter={open}
-            senderName={partnerName}
-            receiverName="you"
+            authorName={authorOf(open)}
+            recipientName={recipientOf(open)}
+            archived={false}
             onClose={() => setOpen(null)}
+            onArchive={() => {
+              void setArchived(open.id, true)
+              setOpen(null)
+            }}
+            onDelete={() => {
+              void deleteForMe(open.id)
+              setOpen(null)
+            }}
           />
         )}
       </AnimatePresence>
