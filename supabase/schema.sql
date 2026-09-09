@@ -29,11 +29,20 @@ create index if not exists letters_receiver_created_idx
 -- Base58-ish: no 0, O, I or l, so a code read off a screen is unambiguous.
 -- Uses the CSPRNG rather than random(): this is a bearer credential, and the
 -- app is already careful to use one for share slugs.
+--
+-- `extensions` MUST be on the search_path here. gen_random_bytes comes from
+-- pgcrypto, which Supabase installs into the `extensions` schema — and
+-- `create extension if not exists pgcrypto` above is a no-op when it is
+-- already there, so it does not move it into public. Without this the
+-- function raises "function gen_random_bytes(integer) does not exist", the
+-- handle_new_user trigger aborts, and every sign-up fails with Supabase's
+-- generic "Database error saving new user". pg_temp stays last so a
+-- temporary object cannot shadow anything.
 create or replace function new_invite_code()
 returns text
 language plpgsql
 security definer
-set search_path = public, pg_temp
+set search_path = public, extensions, pg_temp
 as $$
 declare
   alphabet constant text := '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
