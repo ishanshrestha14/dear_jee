@@ -69,7 +69,7 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
         })
         expect(sent.error).toBeNull()
 
-        const { data } = await fx.letters.listReceived(fx.partnerId)
+        const { data } = await fx.letters.listConversation(fx.partnerId)
         expect(data!.some((l) => l.id === sent.data!.id)).toBe(true)
       })
 
@@ -85,7 +85,7 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
       })
 
       it('rejects an empty letter without storing anything', async () => {
-        const before = (await fx.letters.listReceived(fx.partnerId)).data!.length
+        const before = (await fx.letters.listConversation(fx.partnerId)).data!.length
         const result = await fx.letters.send({
           senderId: fx.userId,
           receiverId: fx.partnerId,
@@ -93,16 +93,16 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
         })
         expect(result.data).toBeNull()
         expect(result.error).toBe('A letter needs a few words.')
-        expect((await fx.letters.listReceived(fx.partnerId)).data!.length).toBe(before)
+        expect((await fx.letters.listConversation(fx.partnerId)).data!.length).toBe(before)
       })
     })
 
     describe('markRead', () => {
       it('flips isRead and persists it', async () => {
-        const { data: inbox } = await fx.letters.listReceived(fx.userId)
+        const { data: inbox } = await fx.letters.listConversation(fx.userId)
         const target = inbox!.find((l) => !l.isRead)!
         await fx.letters.markRead(target.id)
-        const { data: after } = await fx.letters.listReceived(fx.userId)
+        const { data: after } = await fx.letters.listConversation(fx.userId)
         expect(after!.find((l) => l.id === target.id)!.isRead).toBe(true)
       })
 
@@ -190,14 +190,14 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
 
     describe('share', () => {
       it('makes the letter public and assigns a slug', async () => {
-        const { data: inbox } = await fx.letters.listReceived(fx.userId)
+        const { data: inbox } = await fx.letters.listConversation(fx.userId)
         const { data } = await fx.letters.share(inbox![0].id)
         expect(data!.isPublic).toBe(true)
         expect(data!.shareSlug).toHaveLength(12)
       })
 
       it('reuses the slug on a second share so old links keep working', async () => {
-        const { data: inbox } = await fx.letters.listReceived(fx.userId)
+        const { data: inbox } = await fx.letters.listConversation(fx.userId)
         const first = await fx.letters.share(inbox![0].id)
         const second = await fx.letters.share(inbox![0].id)
         expect(second.data!.shareSlug).toBe(first.data!.shareSlug)
@@ -206,7 +206,7 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
 
     describe('getBySlug', () => {
       it('returns only the publicly safe fields', async () => {
-        const { data: inbox } = await fx.letters.listReceived(fx.userId)
+        const { data: inbox } = await fx.letters.listConversation(fx.userId)
         const shared = await fx.letters.share(inbox![0].id)
         const { data } = await fx.letters.getBySlug(shared.data!.shareSlug!)
         expect(Object.keys(data!).sort()).toEqual([
