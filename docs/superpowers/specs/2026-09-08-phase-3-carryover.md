@@ -73,17 +73,31 @@ aesthetic choice.
 - `npx tsc --noEmit` is a no-op in this repo — the root tsconfig is
   `{"files": [], "references": [...]}`. Use `npm run typecheck` (`tsc -b`).
 
-## Deferred from the Phase 3 Task 2 security review
+## Resolved from the Phase 3 Task 2 security review
 
-**`letters` foreign keys are `on delete cascade`.** Deleting either account
-destroys the entire correspondence, including the surviving partner's received
-letters — one person can erase the other's. This is latent, not live: v1 has no
-delete flow and none is planned before Phase 5. Decide between `on delete
-restrict` and a soft-delete column BEFORE any account-deletion feature ships.
+**`letters` foreign keys are now `on delete set null`.** The cascade
+configuration would have deleted either account destroyed the entire
+correspondence, including the surviving partner's letters. Now changed: the ids
+go to null and a `before delete` trigger on `profiles` freezes the departing
+person's name and archives the survivor's side. Letters survive their author.
 
-**`link_partners` uses `if me is null` rather than `if not found`.** Works for a
-composite variable; `if not found` is the idiom and is robust to an all-null
-row. Cosmetic.
+**`link_partners` split its exceptions.** Previously raised `ALREADY_LINKED`
+for both "you have a partner" and "the code's owner has one", making it
+impossible to tell which was wrong. Now distinguishes: `ALREADY_LINKED` for the
+former, `LINK_ALREADY_USED` for the latter.
+
+**`link_partners` still uses `if me is null` rather than `if not found`.** Works
+for a composite variable; `if not found` is the idiom and is robust to an
+all-null row. Cosmetic and left unchanged.
+
+## Phase 3b carry-over: sharing and deleted letters
+
+**`get_public_letter` ignores the new archive and delete columns.** A letter
+shared and later deleted by one party would still resolve by its slug — the
+function checks only `is_public` and `share_slug`, not `sender_deleted_at` or
+`receiver_deleted_at`. Nothing calls this function yet; sharing is Phase 4.
+Phase 4 owns this: decide whether a deleted letter should remain publicly
+readable or vanish from the share link, and apply the check then.
 
 ## Deferred from the Phase 3 Task 4 review
 

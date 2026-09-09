@@ -85,6 +85,9 @@ Inbox, the unfolding letter view, and compose — fully usable with no backend.
   *grow* into the opened letter rather than fade in.
 - The repository interface, the in-memory implementation, and a 15-case
   contract suite.
+- Inbox shown only letters you *received*; sent letters did not appear in your
+  own timeline. This was a Phase 2 decision and is superseded by the later
+  phase-break change.
 
 **Found by review:**
 - `prefers-reduced-motion` was unmet across the whole app. The CSS media query
@@ -136,6 +139,40 @@ forging `partner_id`, inserting to a stranger, re-pointing `receiver_id`,
 enumerating profiles, reading a private letter through the share function,
 anonymous reads — and all nine are blocked.
 
+## Phase 3b — Letters outlive the bond *(complete)*
+
+Archive and per-person delete, one merged timeline, and account deletion no
+longer destroys a letter.
+
+- Deleting an account unfolds into two changes: `sender_id` and `receiver_id`
+  go to null, and a `before delete` trigger on `profiles` freezes the departing
+  person's name onto their letters (into `sender_name` and `receiver_name`,
+  separate from the live profile) while archiving the survivor's side. The
+  correspondence survives, the author's name is preserved.
+- Archive and delete are per-person. `sender_archived_at` and
+  `receiver_archived_at` timestamps record when each side archived, leaving
+  the other's copy untouched. `sender_deleted_at` and `receiver_deleted_at`
+  remove it from that person's side permanently — RLS stops them reading the
+  row, so recovery requires the dashboard.
+- The inbox became `listConversation()`: every letter you sent or received,
+  newest first, excluding archived ones. A second method, `listArchived()`,
+  returns the archived letters. This retires Phase 2's received-only inbox
+  and, with it, the earlier restriction that sent letters do not appear in
+  your own timeline.
+- `link_partners` split its overloaded exception: `ALREADY_LINKED` when *you*
+  have a partner, `LINK_ALREADY_USED` when the *code's owner* does. Someone
+  opening a spent invite link is no longer told they are already connected to
+  someone when they are not connected to anyone.
+
+**Fixed by this work:**
+- **Letters were erasable by one person.** Both `letters` foreign keys were
+  `on delete cascade`, so deleting an account destroyed the surviving partner's
+  entire correspondence. Changed to `on delete set null` so letters survive
+  their author, and a trigger archives the survivor's side.
+- **The pairing error lied.** `link_partners` raised the same exception both
+  when the caller was linked and when the code was spent, so the UI could not
+  tell someone what actually went wrong.
+
 ## Phase 4 — Sharing *(not started)*
 
 Slug generation is done and tested; `share` and `getBySlug` exist on both
@@ -158,8 +195,12 @@ fixes it but trades against the faded warmth the PRD asked for. The focus ring
 was fixed regardless — an invisible keyboard indicator is a defect, not a
 style.
 
-**Before a delete feature ships:** both `letters` foreign keys are `on delete
-cascade`, so deleting an account destroys the surviving partner's letters.
+**Resolved in Phase 3b:** Letters used to be deleted along with their author.
+Both `letters` foreign keys were `on delete cascade`, so one person could
+erase the other's correspondence by deleting their account. Changed to `on
+delete set null`, and a `before delete` trigger on `profiles` freezes the
+departing person's name and archives the survivor's side so the correspondence
+survives and moves quietly away.
 
 **Before Phase 4 ships:** build the share button on a single atomic update —
 `share` is currently a read-then-write.

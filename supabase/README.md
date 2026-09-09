@@ -22,6 +22,18 @@ SQL Editor → New query. Paste the whole of `schema.sql`, run it. Then a new
 query with the whole of `policies.sql`, run that. Both are idempotent, so
 re-running them is safe.
 
+## 3.5. Apply migrations
+
+Both `schema.sql` and `policies.sql` are designed to be re-runnable: new
+columns use `add column if not exists`, and modified constraints use `drop
+constraint if exists` followed by `add constraint`. When the schema changes —
+to add columns, alter foreign keys, or update the permission model — re-running
+both files in order applies the migration in place, without losing data.
+
+After this change (archive and deletion), archive and delete will not work
+until you re-run `schema.sql` and `policies.sql` on your existing project. The
+new columns and RLS grants are required.
+
 ## 4. Copy the keys into .env
 
 Settings → API Keys. Copy `.env.example` to `.env` and fill in:
