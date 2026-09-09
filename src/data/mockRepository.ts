@@ -47,6 +47,12 @@ function seedLetters(): Letter[] {
     isRead: false,
     shareSlug: null,
     isPublic: false,
+    senderName: null,
+    receiverName: null,
+    senderArchivedAt: null,
+    receiverArchivedAt: null,
+    senderDeletedAt: null,
+    receiverDeletedAt: null,
   }
   return [
     {
@@ -76,6 +82,23 @@ function seedLetters(): Letter[] {
 }
 
 /**
+ * The mock has no row-level security, so it must apply the delete rule the
+ * Supabase policy applies for the real adapter. Without this the two
+ * implementations diverge and the contract suite passes on a lie.
+ */
+function visibleTo(l: Letter, userId: string): boolean {
+  if (l.senderId === userId) return l.senderDeletedAt === null
+  if (l.receiverId === userId) return l.receiverDeletedAt === null
+  return false
+}
+
+function isArchivedBy(l: Letter, userId: string): boolean {
+  if (l.senderId === userId) return l.senderArchivedAt !== null
+  if (l.receiverId === userId) return l.receiverArchivedAt !== null
+  return false
+}
+
+/**
  * In-memory implementation of the repository contracts.
  *
  * This is the only data source in Phases 1 and 2, and it doubles as the
@@ -91,11 +114,38 @@ export function createMockRepositories(options: MockOptions = {}): {
   const findProfile = (id: string) => profiles.find((p) => p.id === id)
 
   const letterRepository: LetterRepository = {
-    async listReceived(userId) {
-      const received = letters
-        .filter((l) => l.receiverId === userId)
+    async listConversation(userId) {
+      const mine = letters
+        .filter((l) => visibleTo(l, userId) && !isArchivedBy(l, userId))
         .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
-      return ok(received.map((l) => ({ ...l })))
+      return ok(mine.map((l) => ({ ...l })))
+    },
+
+    async listArchived(userId) {
+      const mine = letters
+        .filter((l) => visibleTo(l, userId) && isArchivedBy(l, userId))
+        .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+      return ok(mine.map((l) => ({ ...l })))
+    },
+
+    async setArchived(letterId, userId, archived) {
+      const letter = letters.find((l) => l.id === letterId)
+      if (!letter) return fail('Letter not found.')
+      const at = archived ? new Date().toISOString() : null
+      if (letter.senderId === userId) letter.senderArchivedAt = at
+      else if (letter.receiverId === userId) letter.receiverArchivedAt = at
+      else return fail('Letter not found.')
+      return ok({ ...letter })
+    },
+
+    async deleteForMe(letterId, userId) {
+      const letter = letters.find((l) => l.id === letterId)
+      if (!letter) return fail('Letter not found.')
+      const at = new Date().toISOString()
+      if (letter.senderId === userId) letter.senderDeletedAt = at
+      else if (letter.receiverId === userId) letter.receiverDeletedAt = at
+      else return fail('Letter not found.')
+      return ok({ ...letter })
     },
 
     async send({ senderId, receiverId, message }: SendLetterInput) {
@@ -111,6 +161,12 @@ export function createMockRepositories(options: MockOptions = {}): {
         isRead: false,
         shareSlug: null,
         isPublic: false,
+        senderName: null,
+        receiverName: null,
+        senderArchivedAt: null,
+        receiverArchivedAt: null,
+        senderDeletedAt: null,
+        receiverDeletedAt: null,
       }
       letters.push(letter)
       return ok({ ...letter })
@@ -138,8 +194,13 @@ export function createMockRepositories(options: MockOptions = {}): {
       const view: PublicLetter = {
         message: letter.message,
         createdAt: letter.createdAt,
-        senderName: findProfile(letter.senderId)?.fullName ?? 'Someone',
-        receiverName: findProfile(letter.receiverId)?.fullName ?? 'you',
+        senderName:
+          (letter.senderId !== null ? findProfile(letter.senderId)?.fullName : letter.senderName) ??
+          'Someone',
+        receiverName:
+          (letter.receiverId !== null
+            ? findProfile(letter.receiverId)?.fullName
+            : letter.receiverName) ?? 'you',
       }
       return ok(view)
     },
@@ -168,12 +229,12 @@ export function createMockRepositories(options: MockOptions = {}): {
     async linkPartner(userId, inviteCode) {
       const self = findProfile(userId)
       if (!self) return fail('Profile not found.')
-      if (self.partnerId) return fail('You are already connected.')
+      if (self.partnerId) return fail('You are already connected to someone.')
 
       const other = profiles.find((p) => p.inviteCode === inviteCode)
       if (!other) return fail('That invite link is not valid.')
       if (other.id === self.id) return fail('That invite link is your own.')
-      if (other.partnerId) return fail('You are already connected.')
+      if (other.partnerId) return fail('That invite link has already been used.')
 
       // Both sides in one step: the link must not half-apply.
       self.partnerId = other.id
