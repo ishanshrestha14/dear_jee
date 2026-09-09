@@ -548,7 +548,23 @@ After the `markRead` describe block, add:
 
 The "does NOT archive it for the other person" and "removes the letter from this user only" cases are the point of this task. Per-person state implemented accidentally as shared state is the defect most likely to ship here, and nothing else catches it.
 
-- [ ] **Step 3: Update the pairing assertion for the reworded copy**
+- [ ] **Step 3: Rename the remaining `listReceived` call sites**
+
+`listReceived` no longer exists, and it is called in EIGHT more places outside
+the block you just replaced — inside the `send`, `markRead`, `share` and
+`getBySlug` describe blocks, which use it to fetch a letter to act on. Replace
+every one with `listConversation`:
+
+```bash
+grep -n "listReceived" src/data/contractTests.ts
+```
+
+must return nothing when you are done. The rename is semantically safe in all
+eight: nothing is archived in those cases, and no letter is sent before the
+markRead, share or getBySlug cases run, so `listConversation` returns exactly
+what `listReceived` did.
+
+- [ ] **Step 4: Update the pairing assertion for the reworded copy**
 
 The spec rewords the self-already-linked message so it no longer reads as if it
 covers both cases. In the `linkPartner` describe block, change:
@@ -572,12 +588,12 @@ ever run. Recording the gap is the point — do not invent a third seeded profil
 to close it, because that would change what every other contract case runs
 against.
 
-- [ ] **Step 4: Run the suite**
+- [ ] **Step 5: Run the suite**
 
 Run: `npm test`
 Expected: FAIL — `fx.letters.listConversation is not a function`. The implementations arrive in Tasks 6 and 7.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/data/contractTests.ts
