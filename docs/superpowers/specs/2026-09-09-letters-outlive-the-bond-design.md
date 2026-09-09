@@ -173,8 +173,10 @@ unreadable under RLS, and "already used" is the actionable fact.
 ## 5. Reads
 
 `listReceived(userId)` becomes **`listConversation(userId)`**: every letter where
-the user is sender or receiver, excluding ones they have deleted or archived,
-newest first. The RLS select policy already permits exactly this, so there is no
+the user is sender or receiver, excluding ones they have archived, newest first.
+Deleted letters need no filter here — section 4.4 makes them unreadable in RLS —
+but the mock has no RLS, so its implementation must exclude them explicitly for
+the two adapters to behave identically. The RLS select policy already permits exactly this, so there is no
 security change.
 
 A second method, `listArchived(userId)`, returns the same shape filtered to
@@ -223,8 +225,11 @@ invite link, plus one quiet line: *"Your letters with them are in the archive."*
 Logic-level only, per the project's standing decision. No component or hook
 tests.
 
-The repository contract suite gains cases, run against both the mock and the
-Supabase adapter:
+The repository contract suite gains cases. As established in Phase 3, the suite
+runs against the **mock only** — it asserts on seeded data, so pointing it at a
+fresh Postgres would fail for want of a seeding harness rather than for want of
+correctness. The Supabase adapter is verified by reading it against the mock and
+by manual walkthrough. Do not build a seeding harness as part of this work.
 
 | Case | Guards against |
 |---|---|
