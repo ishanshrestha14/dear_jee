@@ -189,11 +189,12 @@ Empty states, skeletons, responsive pass, Vercel.
 
 Full detail in `docs/superpowers/specs/2026-09-08-phase-3-carryover.md`.
 
-**Yours to decide:** `--color-ink-muted` (#8a8078) is 3.74:1 against the paper,
-below WCAG AA for the dates and word count. Darkening it to about `#6f665e`
-fixes it but trades against the faded warmth the PRD asked for. The focus ring
-was fixed regardless — an invisible keyboard indicator is a defect, not a
-style.
+**Decided, 2026-09-10: the palette stands.** `--color-ink-muted` (#8a8078) is
+3.74:1 against the paper, below WCAG AA for the letter dates and word count.
+The owner chose to keep it: the faded, low-contrast warmth is the product, and
+those two elements are peripheral rather than the letter itself. Revisit only
+if the app is ever used by someone who finds them illegible. The focus ring was
+fixed regardless — an invisible keyboard indicator is a defect, not a style.
 
 **Resolved in Phase 3b:** Letters used to be deleted along with their author.
 Both `letters` foreign keys were `on delete cascade`, so one person could
