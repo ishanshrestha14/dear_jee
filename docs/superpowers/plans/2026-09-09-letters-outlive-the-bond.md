@@ -312,7 +312,9 @@ create trigger profiles_freeze_letters
 
 - [ ] **Step 3: Make `unlink_partner` archive both sides**
 
-In `unlink_partner`, immediately before the line `update profiles set partner_id = null, invite_code = new_invite_code() where id = me.id;`, insert:
+In `unlink_partner`, INSIDE the existing `if me.partner_id is not null then`
+block — immediately after the `update profiles ... where id = other.id;` that
+rotates the partner's code, and before that block's `end if;` — insert:
 
 ```sql
     -- A breakup moves the correspondence to both people's archives. Doing it
@@ -332,7 +334,9 @@ In `unlink_partner`, immediately before the line `update profiles set partner_id
      where receiver_id = other.id and sender_id = me.id;
 ```
 
-This sits inside the existing `if me.partner_id is not null then` block, so it runs only when there is a partner to unlink from.
+Placement matters: `other` is only guaranteed to be populated inside that
+block. Put these statements after the block and `other.id` is NULL, so all four
+updates match no rows and silently archive nothing.
 
 - [ ] **Step 4: Read the file through**
 
