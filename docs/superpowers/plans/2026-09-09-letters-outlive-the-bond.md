@@ -161,7 +161,8 @@ begin
     raise exception 'IMMUTABLE_COLUMN';
   end if;
 
-  if new.is_read is distinct from old.is_read and auth.uid() <> old.receiver_id then
+  if new.is_read is distinct from old.is_read
+     and auth.uid() is distinct from old.receiver_id then
     raise exception 'ONLY_RECEIVER_MAY_READ';
   end if;
 
