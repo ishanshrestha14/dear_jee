@@ -5,28 +5,48 @@ import type { Letter } from '../data/types'
 
 interface UseLetters {
   letters: Letter[]
+  archived: Letter[]
   partnerName: string
   loading: boolean
   error: string | null
   sendLetter(message: string): Promise<{ ok: boolean; error?: string }>
   markRead(id: string): Promise<void>
+  setArchived(id: string, archived: boolean): Promise<void>
+  deleteForMe(id: string): Promise<void>
+  reload(): Promise<void>
 }
 
 /**
- * The inbox. Identity and partner resolution belong to AuthProvider; this
- * hook only owns letters, and reloads whenever the signed-in user changes.
+ * The correspondence. Identity and partner resolution belong to AuthProvider;
+ * this hook owns letters and reloads whenever the signed-in user changes.
  */
 export function useLetters(): UseLetters {
   const { userId, profile, partnerName, loading: authLoading } = useAuth()
   const partnerId = profile?.partnerId ?? null
 
   const [letters, setLetters] = useState<Letter[]>([])
+  const [archived, setArchived_] = useState<Letter[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async (id: string) => {
+    const [conversation, archive] = await Promise.all([
+      letterRepository.listConversation(id),
+      letterRepository.listArchived(id),
+    ])
+    if (conversation.error !== null) {
+      setError(conversation.error)
+    } else {
+      setLetters(conversation.data)
+      setError(null)
+    }
+    if (archive.error === null) setArchived_(archive.data)
+  }, [])
 
   useEffect(() => {
     if (userId === null) {
       setLetters([])
+      setArchived_([])
       setLoading(authLoading)
       return
     }
@@ -35,20 +55,19 @@ export function useLetters(): UseLetters {
     setLoading(true)
 
     void (async () => {
-      const inbox = await letterRepository.listReceived(userId)
+      await load(userId)
       if (cancelled) return
-      if (inbox.error !== null) setError(inbox.error)
-      else {
-        setLetters(inbox.data)
-        setError(null)
-      }
       setLoading(false)
     })()
 
     return () => {
       cancelled = true
     }
-  }, [userId, authLoading])
+  }, [userId, authLoading, load])
+
+  const reload = useCallback(async () => {
+    if (userId !== null) await load(userId)
+  }, [userId, load])
 
   const sendLetter = useCallback<UseLetters['sendLetter']>(
     async (message) => {
@@ -60,9 +79,10 @@ export function useLetters(): UseLetters {
         message,
       })
       if (result.error !== null) return { ok: false, error: result.error }
+      await load(userId)
       return { ok: true }
     },
-    [userId, partnerId],
+    [userId, partnerId, load],
   )
 
   const markRead = useCallback<UseLetters['markRead']>(async (id) => {
@@ -70,17 +90,40 @@ export function useLetters(): UseLetters {
     setLetters((current) => current.map((l) => (l.id === id ? { ...l, isRead: true } : l)))
     const result = await letterRepository.markRead(id)
     if (result.error !== null) {
-      // Roll back: the server never confirmed the read, so the dot returns.
       setLetters((current) => current.map((l) => (l.id === id ? { ...l, isRead: false } : l)))
     }
   }, [])
 
+  const setArchivedFn = useCallback<UseLetters['setArchived']>(
+    async (id, next) => {
+      if (userId === null) return
+      const result = await letterRepository.setArchived(id, userId, next)
+      if (result.error !== null) setError(result.error)
+      await load(userId)
+    },
+    [userId, load],
+  )
+
+  const deleteForMe = useCallback<UseLetters['deleteForMe']>(
+    async (id) => {
+      if (userId === null) return
+      const result = await letterRepository.deleteForMe(id, userId)
+      if (result.error !== null) setError(result.error)
+      await load(userId)
+    },
+    [userId, load],
+  )
+
   return {
     letters,
+    archived,
     partnerName,
     loading: loading || authLoading,
     error,
     sendLetter,
     markRead,
+    setArchived: setArchivedFn,
+    deleteForMe,
+    reload,
   }
 }
