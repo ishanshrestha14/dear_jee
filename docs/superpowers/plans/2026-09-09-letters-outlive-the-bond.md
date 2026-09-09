@@ -165,16 +165,27 @@ begin
     raise exception 'ONLY_RECEIVER_MAY_READ';
   end if;
 
-  -- Each side owns its own archive and delete state and nobody else's.
-  if (new.sender_archived_at is distinct from old.sender_archived_at
-      or new.sender_deleted_at is distinct from old.sender_deleted_at)
-     and auth.uid() is distinct from old.sender_id then
-    raise exception 'NOT_YOUR_SIDE';
-  end if;
-  if (new.receiver_archived_at is distinct from old.receiver_archived_at
-      or new.receiver_deleted_at is distinct from old.receiver_deleted_at)
-     and auth.uid() is distinct from old.receiver_id then
-    raise exception 'NOT_YOUR_SIDE';
+  -- Each side owns its own archive and delete state and nobody else's —
+  -- but ONLY when the update comes straight from a client.
+  --
+  -- `unlink_partner` and `freeze_profile_letters` are security definer and
+  -- archive BOTH people's sides on their behalf. Inside them current_user is
+  -- the function owner, not `authenticated`, while auth.uid() still reads the
+  -- caller's JWT — so without this guard the per-side rule below would fire on
+  -- the partner's row and make unlinking, and account deletion, fail outright.
+  -- PostgREST sets the role to `authenticated` for a signed-in request, which
+  -- is the same role every grant in this file already names.
+  if current_user = 'authenticated' then
+    if (new.sender_archived_at is distinct from old.sender_archived_at
+        or new.sender_deleted_at is distinct from old.sender_deleted_at)
+       and auth.uid() is distinct from old.sender_id then
+      raise exception 'NOT_YOUR_SIDE';
+    end if;
+    if (new.receiver_archived_at is distinct from old.receiver_archived_at
+        or new.receiver_deleted_at is distinct from old.receiver_deleted_at)
+       and auth.uid() is distinct from old.receiver_id then
+      raise exception 'NOT_YOUR_SIDE';
+    end if;
   end if;
 
   -- Either participant may share. The correspondence belongs to both of
@@ -1039,17 +1050,19 @@ interface LetterCardProps {
   letter: Letter
   /** Whoever wrote it — hers on hers, yours on yours. */
   authorName: string
+  /** Only ever true for a letter you received and have not opened. */
+  unread: boolean
   onOpen: (letter: Letter) => void
 }
 ```
 
-Rename the prop in the function signature from `senderName` to `authorName` and use it where `senderName` was rendered. Change the unread dot condition to:
+Rename the prop in the function signature from `senderName` to `authorName`, add `unread`, and use `authorName` where `senderName` was rendered. Change the unread dot condition to:
 
 ```tsx
-        {!letter.isRead && letter.senderId !== null && (
+        {unread && (
 ```
 
-so it still only marks genuinely received mail; the caller passes only received letters as unread anyway, but a letter whose author is gone should never show a live indicator.
+The card cannot compute this itself. Now that the timeline carries letters you SENT as well as received, `!letter.isRead` is true for every letter you have written — the recipient has not opened it — so testing that alone would put an unread dot on your own outgoing letters. The card does not know who is viewing, so the caller decides: `unread={letter.receiverId === userId && !letter.isRead}`.
 
 - [ ] **Step 2: Make the modal direction-aware and add the actions**
 
@@ -1140,7 +1153,7 @@ In `src/routes/Inbox.tsx`, take `archived`, `setArchived` and `deleteForMe` from
   }
 ```
 
-taking `userId` and `profile` from `useAuth()`. Pass `authorName={authorOf(letter)}` to each `LetterCard`, and give the modal `authorName={authorOf(open)}`, `recipientName={recipientOf(open)}`, `archived={false}`, `onArchive={() => { void setArchived(open.id, true); setOpen(null) }}` and `onDelete={() => { void deleteForMe(open.id); setOpen(null) }}`.
+taking `userId` and `profile` from `useAuth()`. Pass `authorName={authorOf(letter)}` and `unread={letter.receiverId === userId && !letter.isRead}` to each `LetterCard`, and give the modal `authorName={authorOf(open)}`, `recipientName={recipientOf(open)}`, `archived={false}`, `onArchive={() => { void setArchived(open.id, true); setOpen(null) }}` and `onDelete={() => { void deleteForMe(open.id); setOpen(null) }}`.
 
 In the unlinked empty state, when `archived.length > 0`, add below the invite link:
 
@@ -1230,6 +1243,7 @@ export default function Archive() {
             key={letter.id}
             letter={letter}
             authorName={authorOf(letter)}
+            unread={letter.receiverId === userId && !letter.isRead}
             onOpen={setOpen}
           />
         ))}
