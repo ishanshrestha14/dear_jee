@@ -46,10 +46,17 @@ create policy letters_insert_own_to_partner on letters
     and receiver_id = current_partner_id()
   );
 
+-- Deleting a letter must mean you cannot read it, not merely that the app
+-- stops showing it — otherwise "deleted" would leave the row fetchable
+-- through the API, which is not what someone deleting a letter believes is
+-- happening. Each side's deletion affects only that side.
 drop policy if exists letters_select_participant on letters;
 create policy letters_select_participant on letters
   for select to authenticated
-  using (sender_id = auth.uid() or receiver_id = auth.uid());
+  using (
+    (sender_id = auth.uid() and sender_deleted_at is null)
+    or (receiver_id = auth.uid() and receiver_deleted_at is null)
+  );
 
 -- Sender may share; receiver may mark read. RLS cannot restrict columns, so
 -- this policy admits both participants to the row and the
@@ -60,3 +67,14 @@ create policy letters_update_participant on letters
   for update to authenticated
   using (sender_id = auth.uid() or receiver_id = auth.uid())
   with check (sender_id = auth.uid() or receiver_id = auth.uid());
+
+-- Column grants are checked BEFORE RLS, so this is what actually stops a
+-- client touching sender_id, receiver_id, message or created_at at all. The
+-- trigger's immutability checks are the second layer, not the first.
+-- Referential actions run as the system and bypass grants, so the
+-- `on delete set null` action still works.
+revoke update on letters from authenticated;
+grant update (is_read, is_public, share_slug,
+              sender_archived_at, receiver_archived_at,
+              sender_deleted_at, receiver_deleted_at)
+  on letters to authenticated;
