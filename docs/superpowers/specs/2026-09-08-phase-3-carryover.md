@@ -96,3 +96,26 @@ bypasses RLS, and `InviteLink` reads the user's own profile. Do NOT build a
 pre-link partner preview on this method — making it work would require a
 security-definer lookup that turns invite codes into a name-enumeration
 oracle. Use a different mechanism if that feature is ever wanted.
+
+## Carried out of Phase 3
+
+**`Inbox.tsx` still hardcodes `receiverName="you"`**, so the letter modal opens
+"Dear you,". Correct before auth existed; now that a real profile is available
+it should use it. The Phase 3 plan never scheduled this — a plan omission
+rather than an implementation defect.
+
+**`unlink_partner`'s stale-read guard locks out of canonical order.** Both
+`link_partners` and `unlink_partner` lock the two profile rows lower-uuid-first
+so they cannot deadlock against each other. The exception is `unlink_partner`'s
+guard for a partner that changed between its unlocked read and its lock: that
+path re-locks while already holding the caller's row. The window requires a
+concurrent `link_partners` on the same user at that instant; Postgres aborts one
+side rather than corrupting. The function has no UI caller yet. If a Phase 4+
+feature calls it, close this by re-reading `partner_id` under the caller's lock
+and restarting the ordered acquisition.
+
+**`share` is a non-atomic read-then-write** in `supabaseRepository.ts`: two
+concurrent shares of an unshared letter can generate different slugs and the
+first caller is handed one the second overwrote. No caller exists until Phase 4
+— build the share button on a single `coalesce(share_slug, $1)` update or an
+RPC rather than patching the current shape.
