@@ -17,13 +17,19 @@ const fail = <T>(error: string): Result<T> => ({ data: null, error })
 /** Postgres rows are snake_case; the domain is camelCase. */
 interface LetterRow {
   id: string
-  sender_id: string
-  receiver_id: string
+  sender_id: string | null
+  receiver_id: string | null
   message: string
   created_at: string
   is_read: boolean
   share_slug: string | null
   is_public: boolean
+  sender_name: string | null
+  receiver_name: string | null
+  sender_archived_at: string | null
+  receiver_archived_at: string | null
+  sender_deleted_at: string | null
+  receiver_deleted_at: string | null
 }
 
 interface ProfileRow {
@@ -43,6 +49,12 @@ const toLetter = (r: LetterRow): Letter => ({
   isRead: r.is_read,
   shareSlug: r.share_slug,
   isPublic: r.is_public,
+  senderName: r.sender_name,
+  receiverName: r.receiver_name,
+  senderArchivedAt: r.sender_archived_at,
+  receiverArchivedAt: r.receiver_archived_at,
+  senderDeletedAt: r.sender_deleted_at,
+  receiverDeletedAt: r.receiver_deleted_at,
 })
 
 const toProfile = (r: ProfileRow): Profile => ({
@@ -58,7 +70,8 @@ const toProfile = (r: ProfileRow): Profile => ({
  * contract asserts. Postgres wraps the raised message, so match on substring.
  */
 function linkErrorMessage(raw: string): string {
-  if (raw.includes('ALREADY_LINKED')) return 'You are already connected.'
+  if (raw.includes('LINK_ALREADY_USED')) return 'That invite link has already been used.'
+  if (raw.includes('ALREADY_LINKED')) return 'You are already connected to someone.'
   if (raw.includes('OWN_CODE')) return 'That invite link is your own.'
   if (raw.includes('INVALID_CODE')) return 'That invite link is not valid.'
   if (raw.includes('PROFILE_NOT_FOUND')) return 'Profile not found.'
@@ -70,6 +83,7 @@ function linkErrorMessage(raw: string): string {
  * logged in dev; the user gets something they can act on.
  */
 function letterErrorMessage(raw: string): string {
+  if (raw.includes('NOT_YOUR_SIDE')) return 'That is not yours to change.'
   if (raw.includes('IMMUTABLE_COLUMN')) return 'A sent letter cannot be edited.'
   if (raw.includes('ONLY_RECEIVER_MAY_READ')) return 'Only the person it was written to can open it.'
   if (raw.includes('new row violates')) return 'You are not connected to anyone yet.'
@@ -104,6 +118,12 @@ async function guard<T>(operation: () => Promise<Result<T>>): Promise<Result<T>>
   }
 }
 
+function archivedBy(l: Letter, userId: string): boolean {
+  if (l.senderId === userId) return l.senderArchivedAt !== null
+  if (l.receiverId === userId) return l.receiverArchivedAt !== null
+  return false
+}
+
 /** The client is guaranteed non-null here; index.ts only calls this when configured. */
 export function createSupabaseRepositories(): {
   letters: LetterRepository
@@ -115,15 +135,89 @@ export function createSupabaseRepositories(): {
   const db = supabase
 
   const letterRepository: LetterRepository = {
-    async listReceived(userId) {
+    async listConversation(userId) {
+      return guard(async () => {
+        // RLS already hides letters this user deleted, so there is no delete
+        // filter here — unlike the mock, which has no policies to lean on.
+        const { data, error } = await db
+          .from('letters')
+          .select('*')
+          .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
+          .order('created_at', { ascending: false })
+        if (error) return fail(letterErrorMessage(error.message))
+        const rows = (data as LetterRow[]).map(toLetter)
+        return ok(rows.filter((l) => !archivedBy(l, userId)))
+      })
+    },
+
+    async listArchived(userId) {
       return guard(async () => {
         const { data, error } = await db
           .from('letters')
           .select('*')
-          .eq('receiver_id', userId)
+          .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
           .order('created_at', { ascending: false })
         if (error) return fail(letterErrorMessage(error.message))
-        return ok((data as LetterRow[]).map(toLetter))
+        const rows = (data as LetterRow[]).map(toLetter)
+        return ok(rows.filter((l) => archivedBy(l, userId)))
+      })
+    },
+
+    async setArchived(letterId, userId, archived) {
+      return guard(async () => {
+        const existing = await db.from('letters').select('*').eq('id', letterId).maybeSingle()
+        if (existing.error) return fail(letterErrorMessage(existing.error.message))
+        if (existing.data === null) return fail('Letter not found.')
+
+        const row = existing.data as LetterRow
+        const at = archived ? new Date().toISOString() : null
+        const patch =
+          row.sender_id === userId
+            ? { sender_archived_at: at }
+            : row.receiver_id === userId
+              ? { receiver_archived_at: at }
+              : null
+        if (patch === null) return fail('Letter not found.')
+
+        const { data, error } = await db
+          .from('letters')
+          .update(patch)
+          .eq('id', letterId)
+          .select()
+          .maybeSingle()
+        if (error) return fail(letterErrorMessage(error.message))
+        if (data === null) return fail('Letter not found.')
+        return ok(toLetter(data as LetterRow))
+      })
+    },
+
+    async deleteForMe(letterId, userId) {
+      return guard(async () => {
+        const existing = await db.from('letters').select('*').eq('id', letterId).maybeSingle()
+        if (existing.error) return fail(letterErrorMessage(existing.error.message))
+        if (existing.data === null) return fail('Letter not found.')
+
+        const row = existing.data as LetterRow
+        const at = new Date().toISOString()
+        const patch =
+          row.sender_id === userId
+            ? { sender_deleted_at: at }
+            : row.receiver_id === userId
+              ? { receiver_deleted_at: at }
+              : null
+        if (patch === null) return fail('Letter not found.')
+
+        // The row is returned before RLS hides it, so the caller still gets
+        // the Result it expects rather than a confusing not-found.
+        const { data, error } = await db
+          .from('letters')
+          .update(patch)
+          .eq('id', letterId)
+          .select()
+          .maybeSingle()
+        if (error) return fail(letterErrorMessage(error.message))
+        if (data === null) return ok(toLetter({ ...row, ...patch } as LetterRow))
+        return ok(toLetter(data as LetterRow))
       })
     },
 
