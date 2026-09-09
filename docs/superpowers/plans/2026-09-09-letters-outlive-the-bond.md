@@ -947,13 +947,17 @@ export function useLetters(): UseLetters {
       letterRepository.listConversation(id),
       letterRepository.listArchived(id),
     ])
-    if (conversation.error !== null) {
-      setError(conversation.error)
-    } else {
-      setLetters(conversation.data)
-      setError(null)
-    }
-    if (archive.error === null) setArchived_(archive.data)
+    // Both failures must surface. Swallowing the archive's would leave the
+    // previous list on screen looking correct, and setArchived/deleteForMe
+    // both call load(), so the staleness would recur after every action — a
+    // wrong list the reader trusts is worse than a missing one they do not.
+    if (conversation.error !== null) setError(conversation.error)
+    else setLetters(conversation.data)
+
+    if (archive.error !== null) setError(archive.error)
+    else setArchived_(archive.data)
+
+    if (conversation.error === null && archive.error === null) setError(null)
   }, [])
 
   useEffect(() => {
