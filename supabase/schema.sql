@@ -91,8 +91,11 @@ begin
 
   -- Lock both rows, LOWER uuid first: two people redeeming each other's
   -- codes concurrently would otherwise each lock their own row first and
-  -- then block waiting for the other's — a mutual-redeem deadlock. Locking
-  -- in one canonical order across all callers rules that out.
+  -- then block waiting for the other's — a mutual-redeem deadlock.
+  -- unlink_partner locks in this same ascending-uuid order, so any pair of
+  -- calls that lock the same two profile rows — two link_partners, two
+  -- unlink_partner, or one of each — acquire them in the same order and
+  -- cannot deadlock against each other.
   if me_id < other_id then
     select * into me    from profiles where id = me_id    for update;
     select * into other from profiles where id = other_id for update;
@@ -137,16 +140,38 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
-  me    profiles;
-  other profiles;
+  me_id    uuid := auth.uid();
+  other_id uuid;
+  me       profiles;
+  other    profiles;
 begin
-  select * into me from profiles where id = auth.uid() for update;
-  if not found then
+  select partner_id into other_id from profiles where id = me_id;
+
+  -- Lock both rows, LOWER uuid first — same canonical order as
+  -- link_partners, so this cannot deadlock against a concurrent
+  -- link_partners or unlink_partner touching the same pair. No second row
+  -- to lock when the caller has no partner.
+  if other_id is null then
+    select * into me from profiles where id = me_id for update;
+  elsif me_id < other_id then
+    select * into me    from profiles where id = me_id    for update;
+    select * into other from profiles where id = other_id for update;
+  else
+    select * into other from profiles where id = other_id for update;
+    select * into me    from profiles where id = me_id    for update;
+  end if;
+
+  if me is null then
     raise exception 'PROFILE_NOT_FOUND';
   end if;
 
   if me.partner_id is not null then
-    select * into other from profiles where id = me.partner_id for update;
+    -- The unlocked read above can be stale (e.g. the partner changed
+    -- between it and our lock); re-lock the current partner if it isn't
+    -- the row we already hold.
+    if other is null or other.id <> me.partner_id then
+      select * into other from profiles where id = me.partner_id for update;
+    end if;
     -- Rotate both codes: the old link may be why they are unlinking.
     update profiles set partner_id = null, invite_code = new_invite_code()
       where id = other.id;
