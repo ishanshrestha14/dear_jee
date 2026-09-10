@@ -147,3 +147,38 @@ guarded by `.is('share_slug', null)` so it can only ever set a slug on a
 letter that has none, falling through to a plain `is_public` flip when that
 guard finds the letter already has one. There is no longer a window between
 reading a slug and writing it.
+
+## Carried out of the sharing phase
+
+**`setShared` takes no `userId`, so the mock cannot enforce participation.**
+`setArchived` and `deleteForMe` both take one specifically so the mock can
+reimplement the per-side rule the database enforces. Sharing has no per-side
+column, and the participant check lives only in the `letters_update_participant`
+policy — so the mock allows `setShared` on any letter by id. Not exploitable
+(the mock is dev-only and both call sites pass a letter from the user's own
+list), but it is the one place in the repository interface where the mock is
+deliberately weaker than the database. Add the parameter and the check if this
+interface is touched again.
+
+**`openShare` calls `setSharingId` inside a `setOpen` functional updater.** An
+impure updater — safe because it is idempotent, but it would fire twice under
+StrictMode. Read `open` from the closure in a plain callback instead when next
+in the file.
+
+**The adapter double-writes when sharing an already-deleted letter.** The first
+update writes, `.select()` returns nothing because the select policy hides the
+caller's deleted side, so it falls through and writes `is_public` a second time
+before reporting `'Letter not found.'`. Unreachable from the UI, since a deleted
+letter appears in neither list.
+
+**A participant can probe slug existence through the unique constraint.**
+`share_slug` is in the `authenticated` column grant and `enforce_letter_update`
+does not constrain it, so a `23505` violation confirms a guess. Irrelevant in a
+two-person app where both people see every letter anyway, and 70 bits makes the
+oracle useless — but constrain `share_slug` to null-to-non-null in the trigger
+if this ever grows past two people.
+
+**No toast after a native share.** When `navigator.share` exists, `copy()`
+returns before `onCopied()`, so a mobile user gets the OS share sheet and no
+toast. Arguably correct — the sheet is its own feedback — but it means the
+spec's toast copy never appears on the device it names WhatsApp for.
