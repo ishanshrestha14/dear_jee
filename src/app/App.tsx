@@ -1,4 +1,4 @@
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Outlet, Route, Routes } from 'react-router-dom'
 import { MotionConfig } from 'framer-motion'
 import { AuthProvider } from '../auth/AuthProvider'
 import { RequireAuth } from '../components/RequireAuth'
@@ -9,14 +9,29 @@ import Archive from '../routes/Archive'
 import AuthScreen from '../routes/AuthScreen'
 import SetupProfile from '../routes/SetupProfile'
 import JoinPartner from '../routes/JoinPartner'
+import PublicLetter from '../routes/PublicLetter'
+
+/** Wraps every route that belongs to the signed-in app in the shared chrome. */
+function AppChrome() {
+  return (
+    <Layout>
+      <Outlet />
+    </Layout>
+  )
+}
 
 export default function App() {
   return (
     <BrowserRouter>
       <MotionConfig reducedMotion="user">
         <AuthProvider>
-          <Layout>
-            <Routes>
+          <Routes>
+            {/* A stranger following a link from WhatsApp gets a letter, not
+                an app: no header, no nav, nothing to sign into. Outside
+                RequireAuth AND outside Layout. */}
+            <Route path="/letter/:slug" element={<PublicLetter />} />
+
+            <Route element={<AppChrome />}>
               <Route path="/auth" element={<AuthScreen />} />
               <Route
                 path="/setup"
@@ -58,8 +73,8 @@ export default function App() {
                   </RequireAuth>
                 }
               />
-            </Routes>
-          </Layout>
+            </Route>
+          </Routes>
         </AuthProvider>
       </MotionConfig>
     </BrowserRouter>
