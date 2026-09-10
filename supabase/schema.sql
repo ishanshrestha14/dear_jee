@@ -320,7 +320,18 @@ as $$
   from letters l
   left join profiles sender   on sender.id   = l.sender_id
   left join profiles receiver on receiver.id = l.receiver_id
-  where l.share_slug = slug and l.is_public = true
+  where l.share_slug = slug
+    and l.is_public = true
+    -- Either person deleting revokes the link. This is the whole enforcement
+    -- of that decision, and it lives here because this function is the only
+    -- thing an anonymous reader can reach — a check in the client would be
+    -- advisory, since the reader is not running our client.
+    --
+    -- Deliberately NO archive clause: unlink_partner archives the entire
+    -- correspondence, so revoking on archive would mean a breakup silently
+    -- broke every link either of them had ever sent to anyone.
+    and l.sender_deleted_at is null
+    and l.receiver_deleted_at is null
 $$;
 
 revoke all on function get_public_letter(text) from public;
