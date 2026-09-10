@@ -16,6 +16,11 @@ unread, a signed-in user, and a linked partner. That is the normal development
 mode and the whole test suite runs against it. With `.env` present it talks to
 Supabase — see `supabase/README.md`.
 
+The same fallback applies in production, which is the trap: a deployment whose
+environment variables are unset does not error, it serves the mock's three
+seeded letters to every visitor. `DEPLOY.md` has the click-path and the two
+things that bite.
+
 | Command | Does |
 |---|---|
 | `npm run dev` | Dev server |
@@ -200,9 +205,54 @@ Two decisions worth knowing:
   set a slug on a letter that doesn't have one yet; a second call falls
   through to a plain `is_public` flip.
 
-## Phase 5 — Polish and deploy *(not started)*
+## Phase 5 — Deploy *(complete)*
 
-Empty states, skeletons, responsive pass, Vercel.
+The app was already on Vercel and already broken in the two ways that only
+appear once deployed. `vercel.json` now rewrites every path to `index.html`,
+and the route bundle was split so a stranger following a share link downloads
+a fraction of what they used to. `DEPLOY.md` records the parts that live in
+two dashboards rather than in this repository.
+
+**Why the 404s could not have been caught locally.** Vite's dev server serves
+`index.html` for any path it does not recognise, so `/letter/<slug>` and
+`/archive` resolve invisibly in development. Vercel's static file server does
+not: it looks for a file, finds none, and returns 404. Every route in this app
+except `/` was therefore fine locally and dead in production — and
+`/letter/<slug>` is the one URL nobody ever reaches by navigation. A direct hit
+from a message is the *only* way anyone arrives there, so the single route that
+had to survive a cold load was the single route guaranteed not to. One rewrite
+rule fixes all of it.
+
+**The split, and what it is actually for.** `/letter/:slug` is opened by
+someone who did not choose to be here — on a phone, from a message, to read
+one letter once. Before this phase they downloaded the entire application to
+do it: one 609 kB chunk (179 kB gzipped) carrying auth, compose, archive,
+both modals and framer-motion. `PublicLetter` went behind `lazy()` first, and
+that alone changed almost nothing, because `PublicLetter` was never the heavy
+part — the weight was everything statically imported alongside it. So the six
+signed-in routes went lazy too, and `MotionConfig` moved inside `AppChrome`
+so framer-motion loads only for the routes that animate. A stranger now gets
+the shared 448 kB chunk (133 kB gzipped: React, the router, the Supabase
+client) plus a 1.9 kB letter page; framer-motion's 120 kB sits in a chunk they
+never request. The signed-in routes are split as a side effect, not as a goal
+— those two people open the app and stay in it.
+
+**Found: the live site was serving fiction.** Checked directly on 2026-09-10,
+`dearjee.vercel.app` had no Supabase URL anywhere in its bundle and the mock's
+seeded letter text present in it. The environment variables were never set, so
+every visitor was reading three fabricated letters about someone waking before
+an alarm. Nothing in this repository can fix that: Vite inlines `VITE_`-prefixed
+variables at **build** time, so setting them in the Vercel dashboard does
+nothing until a redeploy rebuilds the bundle. There is no server process to
+restart, and no error to notice — the fallback is silent by design.
+
+A structural responsive audit came out of this phase as well
+(`docs/superpowers/specs/2026-09-10-responsive-audit.md`): no fixed width
+anywhere, both share-URL rows correctly `break-all`, but the letter body
+carries `whitespace-pre-wrap` without `break-words`, so a pasted URL inside a
+letter is the most likely way a real page breaks at 375px. It reports; it
+fixes nothing. Nobody on this project can see a rendered page, and that
+verdict needs a phone.
 
 ---
 
