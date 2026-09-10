@@ -53,11 +53,15 @@ export function LetterModal({
     panelRef.current?.focus()
 
     const onKey = (event: KeyboardEvent) => {
+      // Guard first, above Escape too: ShareModal registers its own window
+      // keydown listener, so a single Escape reaches both. While the share
+      // panel is open the letter must ignore Escape entirely and let
+      // ShareModal handle it — otherwise the letter closes underneath it.
+      if (!trapActiveRef.current) return
       if (event.key === 'Escape') {
         onClose()
         return
       }
-      if (!trapActiveRef.current) return
       if (event.key !== 'Tab') return
 
       const panel = panelRef.current
