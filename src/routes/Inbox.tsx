@@ -3,15 +3,26 @@ import { AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LetterCard } from '../components/LetterCard'
 import { LetterModal } from '../components/LetterModal'
+import { ShareModal } from '../components/ShareModal'
+import { Toast } from '../components/Toast'
 import { useLetters } from '../hooks/useLetters'
 import { useAuth } from '../auth/useAuth'
 import { InviteLink } from '../components/InviteLink'
 import type { Letter } from '../data/types'
 
 export default function Inbox() {
-  const { letters, archived, partnerName, loading, error, markRead, setArchived, deleteForMe } = useLetters()
+  const { letters, archived, partnerName, loading, error, markRead, setArchived, deleteForMe, setShared } =
+    useLetters()
   const { userId, profile } = useAuth()
   const [open, setOpen] = useState<Letter | null>(null)
+  const [sharingId, setSharingId] = useState<string | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
+
+  // Derived, not a snapshot. Toggling sharing reloads the list, and the modal
+  // must re-render with the new isPublic and the newly minted slug — a
+  // captured Letter object would still say "Only you two" and show no link,
+  // seconds after the user turned sharing on.
+  const sharing = sharingId === null ? null : (letters.find((l) => l.id === sharingId) ?? null)
 
   const authorOf = (letter: Letter): string => {
     if (letter.senderId === userId) return profile?.fullName ?? 'You'
@@ -105,6 +116,7 @@ export default function Inbox() {
             authorName={authorOf(open)}
             recipientName={recipientOf(open)}
             archived={false}
+            trapActive={sharingId === null}
             onClose={() => setOpen(null)}
             onArchive={() => {
               void setArchived(open.id, true)
@@ -114,8 +126,23 @@ export default function Inbox() {
               void deleteForMe(open.id)
               setOpen(null)
             }}
+            onShare={() => setSharingId(open.id)}
           />
         )}
+        {sharing && (
+          <ShareModal
+            letter={sharing}
+            onClose={() => setSharingId(null)}
+            onSetShared={(next) => {
+              // Deliberately does NOT close the modal. Turning sharing on and
+              // immediately dismissing the panel would hide the link at the
+              // exact moment the user wanted it.
+              void setShared(sharing.id, next)
+            }}
+            onCopied={() => setToast('Link copied! Send it to them on WhatsApp 💌')}
+          />
+        )}
+        {toast !== null && <Toast message={toast} onDone={() => setToast(null)} />}
       </AnimatePresence>
     </>
   )

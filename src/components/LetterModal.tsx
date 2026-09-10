@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { X } from 'lucide-react'
+import { Share2, X } from 'lucide-react'
 import { PaperTexture } from '../design/PaperTexture'
 import { formatLetterDate } from '../lib/format'
 import type { Letter } from '../data/types'
@@ -10,9 +10,11 @@ interface LetterModalProps {
   authorName: string
   recipientName: string
   archived: boolean
+  trapActive: boolean
   onClose: () => void
   onArchive: () => void
   onDelete: () => void
+  onShare: () => void
 }
 
 /**
@@ -23,9 +25,28 @@ interface LetterModalProps {
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
-export function LetterModal({ letter, authorName, recipientName, archived, onClose, onArchive, onDelete }: LetterModalProps) {
+export function LetterModal({
+  letter,
+  authorName,
+  recipientName,
+  archived,
+  trapActive,
+  onClose,
+  onArchive,
+  onDelete,
+  onShare,
+}: LetterModalProps) {
   const panelRef = useRef<HTMLDivElement>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  // A ref, not a dependency: the keydown listener is set up once per
+  // mount (see the effect below), and reading trapActive through a ref lets
+  // that same closure see the current value on every keystroke without
+  // re-running the effect — and without a stale value from the render the
+  // listener was created in.
+  const trapActiveRef = useRef(trapActive)
+  useEffect(() => {
+    trapActiveRef.current = trapActive
+  }, [trapActive])
 
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null
@@ -36,6 +57,7 @@ export function LetterModal({ letter, authorName, recipientName, archived, onClo
         onClose()
         return
       }
+      if (!trapActiveRef.current) return
       if (event.key !== 'Tab') return
 
       const panel = panelRef.current
@@ -97,6 +119,15 @@ export function LetterModal({ letter, authorName, recipientName, archived, onClo
             className="absolute right-4 top-4 rounded-full p-2 text-ink-muted transition-colors hover:text-accent"
           >
             <X size={18} />
+          </button>
+
+          <button
+            type="button"
+            onClick={onShare}
+            aria-label="Share this letter"
+            className="absolute right-14 top-4 rounded-full p-2 text-ink-muted transition-colors hover:text-accent"
+          >
+            <Share2 size={18} />
           </button>
 
           <p className="font-letter text-lg text-ink-letter">Dear {recipientName},</p>

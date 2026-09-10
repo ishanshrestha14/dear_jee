@@ -13,6 +13,7 @@ interface UseLetters {
   markRead(id: string): Promise<void>
   setArchived(id: string, archived: boolean): Promise<void>
   deleteForMe(id: string): Promise<void>
+  setShared(id: string, shared: boolean): Promise<{ ok: boolean; error?: string }>
   reload(): Promise<void>
 }
 
@@ -124,6 +125,23 @@ export function useLetters(): UseLetters {
     [userId, load],
   )
 
+  const setSharedFn = useCallback<UseLetters['setShared']>(
+    async (id, shared) => {
+      if (userId === null) return { ok: false, error: 'You are not signed in.' }
+      const result = await letterRepository.setShared(id, shared)
+      // The error is set AFTER the reload: load() clears the error whenever
+      // both fetches succeed, which would otherwise wipe this one within a
+      // render of it being set.
+      await load(userId)
+      if (result.error !== null) {
+        setError(result.error)
+        return { ok: false, error: result.error }
+      }
+      return { ok: true }
+    },
+    [userId, load],
+  )
+
   return {
     letters,
     archived,
@@ -134,6 +152,7 @@ export function useLetters(): UseLetters {
     markRead,
     setArchived: setArchivedFn,
     deleteForMe,
+    setShared: setSharedFn,
     reload,
   }
 }
