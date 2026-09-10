@@ -54,8 +54,12 @@ export interface LetterRepository {
   setArchived(letterId: string, userId: string, archived: boolean): Promise<Result<Letter>>
   /** Removes the letter from this user's side only. Permanent. */
   deleteForMe(letterId: string, userId: string): Promise<Result<Letter>>
-  /** Makes the letter publicly readable, generating a slug on first call. */
-  share(letterId: string): Promise<Result<Letter>>
+  /**
+   * Publishes or un-publishes the letter. The slug is generated on first
+   * share and PRESERVED when un-shared, so sharing again revives the same
+   * URL rather than minting a new one.
+   */
+  setShared(letterId: string, shared: boolean): Promise<Result<Letter>>
   getBySlug(slug: string): Promise<Result<PublicLetter>>
 }
 
