@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LetterCard } from '../components/LetterCard'
@@ -21,6 +21,15 @@ export default function Archive() {
   // captured Letter object would still say "Only you two" and show no link,
   // seconds after the user turned sharing on.
   const sharing = sharingId === null ? null : (archived.find((l) => l.id === sharingId) ?? null)
+
+  const closeLetter = useCallback(() => setOpen(null), [])
+  const closeShare = useCallback(() => setSharingId(null), [])
+  const openShare = useCallback(() => {
+    setOpen((current) => {
+      if (current !== null) setSharingId(current.id)
+      return current
+    })
+  }, [])
 
   const authorOf = (letter: Letter): string =>
     letter.senderId === userId ? (profile?.fullName ?? 'You') : (letter.senderName ?? partnerName)
@@ -77,12 +86,13 @@ export default function Archive() {
       <AnimatePresence>
         {open && (
           <LetterModal
+            key="letter"
             letter={open}
             authorName={authorOf(open)}
             recipientName={recipientOf(open)}
             archived
             trapActive={sharingId === null}
-            onClose={() => setOpen(null)}
+            onClose={closeLetter}
             onArchive={() => {
               void setArchived(open.id, false)
               setOpen(null)
@@ -91,23 +101,27 @@ export default function Archive() {
               void deleteForMe(open.id)
               setOpen(null)
             }}
-            onShare={() => setSharingId(open.id)}
+            onShare={openShare}
           />
         )}
         {sharing && (
           <ShareModal
+            key="share"
             letter={sharing}
-            onClose={() => setSharingId(null)}
+            onClose={closeShare}
             onSetShared={(next) => {
               // Deliberately does NOT close the modal. Turning sharing on and
               // immediately dismissing the panel would hide the link at the
               // exact moment the user wanted it.
-              void setShared(sharing.id, next)
+              void (async () => {
+                const result = await setShared(sharing.id, next)
+                if (!result.ok) setToast(result.error ?? 'That did not work.')
+              })()
             }}
             onCopied={() => setToast('Link copied! Send it to them on WhatsApp 💌')}
           />
         )}
-        {toast !== null && <Toast message={toast} onDone={() => setToast(null)} />}
+        {toast !== null && <Toast key="toast" message={toast} onDone={() => setToast(null)} />}
       </AnimatePresence>
     </>
   )

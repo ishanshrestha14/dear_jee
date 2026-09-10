@@ -10,6 +10,7 @@ import AuthScreen from '../routes/AuthScreen'
 import SetupProfile from '../routes/SetupProfile'
 import JoinPartner from '../routes/JoinPartner'
 import PublicLetter from '../routes/PublicLetter'
+import NotFound from '../routes/NotFound'
 
 /** Wraps every route that belongs to the signed-in app in the shared chrome. */
 function AppChrome() {
@@ -30,6 +31,8 @@ export default function App() {
                 an app: no header, no nav, nothing to sign into. Outside
                 RequireAuth AND outside Layout. */}
             <Route path="/letter/:slug" element={<PublicLetter />} />
+            <Route path="/letter" element={<NotFound />} />
+            <Route path="*" element={<NotFound />} />
 
             <Route element={<AppChrome />}>
               <Route path="/auth" element={<AuthScreen />} />

@@ -254,11 +254,14 @@ export function createSupabaseRepositories(): {
 
     async setShared(letterId, shared) {
       return guard(async () => {
-        // One statement, so there is no window between reading the slug and
-        // writing it — two concurrent shares would otherwise generate
-        // different slugs and hand the first caller one the second had
-        // already overwritten. `coalesce` preserves an existing slug, which
-        // is what lets an un-shared letter come back on the SAME URL.
+        // Two statements, made race-safe by the `share_slug is null` guard:
+        // under READ COMMITTED a second concurrent caller blocks on the row
+        // lock, re-evaluates the guard against the committed new version,
+        // matches nothing, and falls through to the second statement — so both
+        // callers end up with the same slug. Neither statement reads before it
+        // writes, which is what the old implementation did wrong.
+        // `coalesce` preserves an existing slug, which is what lets an
+        // un-shared letter come back on the SAME URL.
         const { data, error } = await db
           .from('letters')
           .update({ share_slug: generateSlug(), is_public: shared })

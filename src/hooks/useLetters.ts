@@ -129,12 +129,12 @@ export function useLetters(): UseLetters {
     async (id, shared) => {
       if (userId === null) return { ok: false, error: 'You are not signed in.' }
       const result = await letterRepository.setShared(id, shared)
-      // The error is set AFTER the reload: load() clears the error whenever
-      // both fetches succeed, which would otherwise wipe this one within a
-      // render of it being set.
       await load(userId)
       if (result.error !== null) {
-        setError(result.error)
+        // Deliberately NOT setError: the routes early-return on page-level
+        // error, which would replace the letter and the whole grid with one
+        // line of text and leave no UI able to clear it. Share failures belong
+        // in the toast, per the spec's one-notification-system rule.
         return { ok: false, error: result.error }
       }
       return { ok: true }

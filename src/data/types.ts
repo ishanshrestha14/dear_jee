@@ -58,6 +58,13 @@ export interface LetterRepository {
    * Publishes or un-publishes the letter. The slug is generated on first
    * share and PRESERVED when un-shared, so sharing again revives the same
    * URL rather than minting a new one.
+   *
+   * Note it takes no userId, unlike setArchived and deleteForMe. Those need
+   * one so the mock can reimplement the per-side rule the database enforces;
+   * sharing has no per-side column, and the participant check lives only in
+   * the letters_update_participant policy. The mock therefore does NOT
+   * enforce participation here — the one place in this interface where the
+   * mock is deliberately weaker than the database.
    */
   setShared(letterId: string, shared: boolean): Promise<Result<Letter>>
   getBySlug(slug: string): Promise<Result<PublicLetter>>

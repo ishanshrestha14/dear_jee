@@ -211,12 +211,12 @@ export function createMockRepositories(options: MockOptions = {}): {
         message: letter.message,
         createdAt: letter.createdAt,
         senderName:
-          (letter.senderId !== null ? findProfile(letter.senderId)?.fullName : letter.senderName) ??
+          (letter.senderId !== null ? findProfile(letter.senderId)?.fullName : letter.senderName) ||
           'Someone',
         receiverName:
           (letter.receiverId !== null
             ? findProfile(letter.receiverId)?.fullName
-            : letter.receiverName) ?? 'you',
+            : letter.receiverName) || 'you',
       }
       return ok(view)
     },
