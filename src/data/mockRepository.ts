@@ -181,17 +181,31 @@ export function createMockRepositories(options: MockOptions = {}): {
       return ok({ ...letter })
     },
 
-    async share(letterId) {
+    async setShared(letterId, shared) {
       const letter = letters.find((l) => l.id === letterId)
       if (!letter) return fail('Letter not found.')
-      // Reuse an existing slug so links already sent keep resolving.
+      // The slug is generated once and never cleared. Un-sharing only flips
+      // isPublic, so sharing again revives the same URL.
       letter.shareSlug = letter.shareSlug ?? generateSlug()
-      letter.isPublic = true
+      letter.isPublic = shared
       return ok({ ...letter })
     },
 
     async getBySlug(slug) {
-      const letter = letters.find((l) => l.shareSlug === slug && l.isPublic)
+      // The Supabase adapter gets this filtering from get_public_letter. The
+      // mock has no SQL function, so it applies the identical conditions here
+      // — otherwise the two implementations diverge and the app behaves one
+      // way in development and another in production.
+      //
+      // Note what is absent: archived letters STILL resolve. Only deletion
+      // revokes a link.
+      const letter = letters.find(
+        (l) =>
+          l.shareSlug === slug &&
+          l.isPublic &&
+          l.senderDeletedAt === null &&
+          l.receiverDeletedAt === null,
+      )
       if (!letter) return fail('This letter is not available.')
       const view: PublicLetter = {
         message: letter.message,
