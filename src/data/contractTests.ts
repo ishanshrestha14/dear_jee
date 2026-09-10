@@ -254,12 +254,33 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
         expect(result.error).toBe('This letter is not available.')
       })
 
-      it('stops resolving once either person deletes the letter', async () => {
+      it('stops resolving when the RECEIVER deletes it', async () => {
+        // Every seeded letter has fx.userId as receiver, so deleting here sets
+        // receiverDeletedAt alone.
         const { data: inbox } = await fx.letters.listConversation(fx.userId)
         const target = inbox![0]
         const shared = await fx.letters.setShared(target.id, true)
         const slug = shared.data!.shareSlug!
         await fx.letters.deleteForMe(target.id, fx.userId)
+
+        const result = await fx.letters.getBySlug(slug)
+        expect(result.data).toBeNull()
+        expect(result.error).toBe('This letter is not available.')
+      })
+
+      it('stops resolving when the SENDER deletes it', async () => {
+        // The other half of "either person". Without this case an
+        // implementation that checks only receiverDeletedAt passes the one
+        // above while leaving the sender unable to revoke a link to their own
+        // letter — and the suite would report that as correct.
+        const sent = await fx.letters.send({
+          senderId: fx.userId,
+          receiverId: fx.partnerId,
+          message: 'Shared, then withdrawn.',
+        })
+        const shared = await fx.letters.setShared(sent.data!.id, true)
+        const slug = shared.data!.shareSlug!
+        await fx.letters.deleteForMe(sent.data!.id, fx.userId)
 
         const result = await fx.letters.getBySlug(slug)
         expect(result.data).toBeNull()
