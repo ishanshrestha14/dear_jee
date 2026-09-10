@@ -99,6 +99,13 @@ function checks only `is_public` and `share_slug`, not `sender_deleted_at` or
 Phase 4 owns this: decide whether a deleted letter should remain publicly
 readable or vanish from the share link, and apply the check then.
 
+**Resolved in Phase 4.** `get_public_letter` now adds `and
+l.sender_deleted_at is null and l.receiver_deleted_at is null` to its `where`
+clause, so either person deleting the letter revokes the link. Archiving was
+deliberately left out of that clause: `unlink_partner` archives the whole
+correspondence, and revoking on archive would mean a breakup silently broke
+every link either person had ever sent.
+
 ## Deferred from the Phase 3 Task 4 review
 
 **`getByInviteCode` cannot see a stranger's profile under RLS.** The
@@ -133,3 +140,10 @@ concurrent shares of an unshared letter can generate different slugs and the
 first caller is handed one the second overwrote. No caller exists until Phase 4
 — build the share button on a single `coalesce(share_slug, $1)` update or an
 RPC rather than patching the current shape.
+
+**Resolved in Phase 4.** `share(letterId)` became `setShared(letterId,
+shared)`, a toggle, and the write became a single statement: an `update`
+guarded by `.is('share_slug', null)` so it can only ever set a slug on a
+letter that has none, falling through to a plain `is_public` flip when that
+guard finds the letter already has one. There is no longer a window between
+reading a slug and writing it.

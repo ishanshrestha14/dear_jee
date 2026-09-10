@@ -19,7 +19,7 @@ Supabase — see `supabase/README.md`.
 | Command | Does |
 |---|---|
 | `npm run dev` | Dev server |
-| `npm test` | Vitest, 28 logic-level tests |
+| `npm test` | Vitest, 42 logic-level tests across 4 files |
 | `npm run typecheck` | `tsc -b` — the real type gate |
 | `npm run build` | Typecheck plus production build |
 | `npm run lint` | oxlint |
@@ -173,11 +173,32 @@ longer destroys a letter.
   when the caller was linked and when the code was spent, so the UI could not
   tell someone what actually went wrong.
 
-## Phase 4 — Sharing *(not started)*
+## Phase 4 — Sharing *(complete)*
 
-Slug generation is done and tested; `share` and `getBySlug` exist on both
-adapters. Still to build: the share button, the public `/letter/:slug` route,
-Web Share API with clipboard fallback, and the toast.
+A letter can be published as an unlisted URL and read by someone who is not
+signed in — `/letter/:slug`, rendered outside both the auth guard and the app
+chrome. Sharing is a toggle: `setShared(letterId, shared)` flips visibility
+without discarding the slug, so turning sharing off and back on revives the
+same URL rather than minting a new one. The share panel is modelled on
+Drive's "General access" section and nothing else — current state in plain
+words, a Restricted / Anyone-with-the-link control, the URL, Copy and native
+Share via the Web Share API. No roles, no people list, no expiry, no view
+counts; a two-person app has no roles and nobody to invite.
+
+Two decisions worth knowing:
+
+- **Deleting a letter revokes its link; archiving does not.**
+  `get_public_letter` checks `sender_deleted_at is null and
+  receiver_deleted_at is null`, so either person deleting the letter breaks
+  the link. It deliberately does not check either archive column:
+  `unlink_partner` archives the whole correspondence on a breakup, and
+  revoking every link on archive would silently break every letter either
+  person had ever shared.
+- **The slug write is atomic.** `share` used to read the row, choose a slug,
+  and write it back — two round trips with a race in between. It is now a
+  single `update` guarded by `.is('share_slug', null)`, so it can only ever
+  set a slug on a letter that doesn't have one yet; a second call falls
+  through to a plain `is_public` flip.
 
 ## Phase 5 — Polish and deploy *(not started)*
 
@@ -202,9 +223,6 @@ erase the other's correspondence by deleting their account. Changed to `on
 delete set null`, and a `before delete` trigger on `profiles` freezes the
 departing person's name and archives the survivor's side so the correspondence
 survives and moves quietly away.
-
-**Before Phase 4 ships:** build the share button on a single atomic update —
-`share` is currently a read-then-write.
 
 **Cosmetic:** `Inbox.tsx` still hardcodes `receiverName="you"`, so the modal
 reads "Dear you,". `.env.example` and `supabase/README.md` name the Supabase
