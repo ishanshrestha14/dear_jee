@@ -148,9 +148,13 @@ it since Phase 2. Drive's General-access section, rendered on paper:
 - **"Share this letter"**, then the current state in plain words: *"Only the two
   of you can read this"* or *"Anyone with the link can read this."*
 - **The access control**: Only you two / Anyone with the link. This is
-  `is_public`.
-- **The link**, shown in full when shared, reusing the treatment `InviteLink`
-  already uses so the app has one way of presenting a copyable URL.
+  `is_public` alone. Switching to "Only you two" sets it false and RETAINS the
+  slug, which is what lets the same URL come back if they share again.
+- **The link**, shown in full only while the letter is shared, reusing the
+  treatment `InviteLink` already uses so the app has one way of presenting a
+  copyable URL. When access is "Only you two" the link row and both buttons are
+  hidden entirely rather than disabled: the slug still exists in the database,
+  but showing a URL that does not resolve invites someone to send it.
 - **Copy link**, and native **Share** via the Web Share API where available,
   with a clipboard fallback. The icon morphs to a check for about 1.2 seconds.
 
