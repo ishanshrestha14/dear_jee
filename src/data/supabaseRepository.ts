@@ -252,29 +252,36 @@ export function createSupabaseRepositories(): {
       })
     },
 
-    async share(letterId) {
+    async setShared(letterId, shared) {
       return guard(async () => {
-        const existing = await db
-          .from('letters')
-          .select('*')
-          .eq('id', letterId)
-          .maybeSingle()
-        if (existing.error) return fail(letterErrorMessage(existing.error.message))
-        if (existing.data === null) return fail('Letter not found.')
-
-        const row = existing.data as LetterRow
-        // Reuse the slug so links already sent keep resolving.
-        const slug = row.share_slug ?? generateSlug()
-
+        // One statement, so there is no window between reading the slug and
+        // writing it — two concurrent shares would otherwise generate
+        // different slugs and hand the first caller one the second had
+        // already overwritten. `coalesce` preserves an existing slug, which
+        // is what lets an un-shared letter come back on the SAME URL.
         const { data, error } = await db
           .from('letters')
-          .update({ is_public: true, share_slug: slug })
+          .update({ share_slug: generateSlug(), is_public: shared })
+          .eq('id', letterId)
+          .is('share_slug', null)
+          .select()
+          .maybeSingle()
+
+        if (error) return fail(letterErrorMessage(error.message))
+        if (data !== null) return ok(toLetter(data as LetterRow))
+
+        // No row matched the `share_slug is null` guard, which means the
+        // letter already has one. Flip is_public and keep it.
+        const existing = await db
+          .from('letters')
+          .update({ is_public: shared })
           .eq('id', letterId)
           .select()
           .maybeSingle()
-        if (error) return fail(letterErrorMessage(error.message))
-        if (data === null) return fail('Letter not found.')
-        return ok(toLetter(data as LetterRow))
+
+        if (existing.error) return fail(letterErrorMessage(existing.error.message))
+        if (existing.data === null) return fail('Letter not found.')
+        return ok(toLetter(existing.data as LetterRow))
       })
     },
 
