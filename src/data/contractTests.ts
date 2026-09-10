@@ -188,26 +188,46 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
       })
     })
 
-    describe('share', () => {
-      it('makes the letter public and assigns a slug', async () => {
+    describe('setShared', () => {
+      it('publishes the letter and assigns a slug', async () => {
         const { data: inbox } = await fx.letters.listConversation(fx.userId)
-        const { data } = await fx.letters.share(inbox![0].id)
+        const { data } = await fx.letters.setShared(inbox![0].id, true)
         expect(data!.isPublic).toBe(true)
         expect(data!.shareSlug).toHaveLength(12)
       })
 
       it('reuses the slug on a second share so old links keep working', async () => {
         const { data: inbox } = await fx.letters.listConversation(fx.userId)
-        const first = await fx.letters.share(inbox![0].id)
-        const second = await fx.letters.share(inbox![0].id)
+        const first = await fx.letters.setShared(inbox![0].id, true)
+        const second = await fx.letters.setShared(inbox![0].id, true)
         expect(second.data!.shareSlug).toBe(first.data!.shareSlug)
+      })
+
+      it('un-sharing keeps the slug so the same URL can come back', async () => {
+        const { data: inbox } = await fx.letters.listConversation(fx.userId)
+        const shared = await fx.letters.setShared(inbox![0].id, true)
+        const off = await fx.letters.setShared(inbox![0].id, false)
+        expect(off.data!.isPublic).toBe(false)
+        expect(off.data!.shareSlug).toBe(shared.data!.shareSlug)
+
+        const on = await fx.letters.setShared(inbox![0].id, true)
+        expect(on.data!.shareSlug).toBe(shared.data!.shareSlug)
+      })
+
+      it('reports a missing letter rather than throwing', async () => {
+        const result = await fx.letters.setShared(
+          '00000000-0000-4000-8000-000000000000',
+          true,
+        )
+        expect(result.data).toBeNull()
+        expect(result.error).toBe('Letter not found.')
       })
     })
 
     describe('getBySlug', () => {
       it('returns only the publicly safe fields', async () => {
         const { data: inbox } = await fx.letters.listConversation(fx.userId)
-        const shared = await fx.letters.share(inbox![0].id)
+        const shared = await fx.letters.setShared(inbox![0].id, true)
         const { data } = await fx.letters.getBySlug(shared.data!.shareSlug!)
         expect(Object.keys(data!).sort()).toEqual([
           'createdAt',
@@ -221,6 +241,42 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
         const result = await fx.letters.getBySlug('nosuchslug12')
         expect(result.data).toBeNull()
         expect(result.error).toBe('This letter is not available.')
+      })
+
+      it('stops resolving once the letter is un-shared', async () => {
+        const { data: inbox } = await fx.letters.listConversation(fx.userId)
+        const shared = await fx.letters.setShared(inbox![0].id, true)
+        const slug = shared.data!.shareSlug!
+        await fx.letters.setShared(inbox![0].id, false)
+
+        const result = await fx.letters.getBySlug(slug)
+        expect(result.data).toBeNull()
+        expect(result.error).toBe('This letter is not available.')
+      })
+
+      it('stops resolving once either person deletes the letter', async () => {
+        const { data: inbox } = await fx.letters.listConversation(fx.userId)
+        const target = inbox![0]
+        const shared = await fx.letters.setShared(target.id, true)
+        const slug = shared.data!.shareSlug!
+        await fx.letters.deleteForMe(target.id, fx.userId)
+
+        const result = await fx.letters.getBySlug(slug)
+        expect(result.data).toBeNull()
+        expect(result.error).toBe('This letter is not available.')
+      })
+
+      it('KEEPS resolving when the letter is merely archived', async () => {
+        const { data: inbox } = await fx.letters.listConversation(fx.userId)
+        const target = inbox![0]
+        const shared = await fx.letters.setShared(target.id, true)
+        const slug = shared.data!.shareSlug!
+        await fx.letters.setArchived(target.id, fx.userId, true)
+
+        // Unlinking archives the whole correspondence, so revoking on archive
+        // would mean a breakup silently broke every link ever sent.
+        const { data } = await fx.letters.getBySlug(slug)
+        expect(data).not.toBeNull()
       })
     })
 
