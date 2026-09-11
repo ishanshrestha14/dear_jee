@@ -33,6 +33,24 @@ every visitor three seeded letters about someone waking before an alarm. If you
 see those on the live site, the variables are not set, or you have not
 redeployed since setting them.
 
+**Do NOT mark these variables "Sensitive."** Vercel offers a sensitive type
+whose value is write-only. The build container never receives it — it arrives
+as an empty string. Vite then inlines `""`, the minifier folds
+`Boolean("" && "")` down to `false`, and `isSupabaseConfigured()` ships as a
+literal `return false`. The app falls back to the mock, and the dashboard
+still shows both variables as set, so nothing looks wrong. This cost a
+debugging session on 2026-09-11; the live bundle had
+`var Zc=``, Qc=``; function $c(){return !1}` compiled into it.
+
+The anon key belongs in the browser bundle — every visitor's browser has it,
+by design, and RLS is the protection. "Sensitive" means "must never reach the
+client", which is the opposite of what this key is for. Leave both as regular
+variables.
+
+To check which type they are: `npx vercel env ls`. A `Secret` in the type
+column is the broken kind; `npx vercel env pull` returning the literal
+`[SENSITIVE]` confirms it.
+
 **`vercel.json` must be present.** It rewrites every path to `index.html`.
 Without it, `/letter/<slug>` and `/archive` return 404 — and a direct hit is
 the only way anyone reaches a share link. This failure exists only in
