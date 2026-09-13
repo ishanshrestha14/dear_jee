@@ -217,6 +217,13 @@ begin
   update profiles set partner_id = other.id where id = me.id;
   update profiles set partner_id = me.id   where id = other.id;
 
+  -- Open the chapter. A pair that bonded, unbonded and bonds again gets a
+  -- SECOND row: the partial unique indexes constrain only open bonds. That is
+  -- the intended behaviour, not an oversight — it is what makes a reunion
+  -- read as its own chapter rather than merging with the first.
+  insert into bonds (lower_id, upper_id)
+  values (least(me.id, other.id), greatest(me.id, other.id));
+
   select * into me from profiles where id = me.id;
   return me;
 end;
@@ -269,6 +276,20 @@ begin
     -- Rotate both codes: the old link may be why they are unlinking.
     update profiles set partner_id = null, invite_code = new_invite_code()
       where id = other.id;
+
+    -- Close the chapter and freeze both names while this function can still
+    -- read the profiles. After the partner_id nulls below,
+    -- profiles_select_self_or_partner stops each of them reading the other at
+    -- all, so a past chapter with no frozen title would render blank.
+    update bonds
+       set ended_at   = coalesce(ended_at, now()),
+           lower_name = coalesce(lower_name, (select full_name from profiles
+                                              where id = bonds.lower_id)),
+           upper_name = coalesce(upper_name, (select full_name from profiles
+                                              where id = bonds.upper_id))
+     where ended_at is null
+       and lower_id = least(me.id, other.id)
+       and upper_id = greatest(me.id, other.id);
 
     -- A breakup moves the correspondence to both people's archives. Doing it
     -- here rather than in the client means it is atomic: it cannot half-apply
@@ -335,6 +356,19 @@ begin
      set receiver_name = coalesce(receiver_name, old.full_name),
          sender_archived_at = coalesce(sender_archived_at, now())
    where receiver_id = old.id;
+
+  -- An account leaving must close its bond. Otherwise the row stays open
+  -- forever and the partial unique index then blocks the SURVIVOR from ever
+  -- bonding with anyone again — a departure silently ending someone else's
+  -- future.
+  update bonds
+     set ended_at   = coalesce(ended_at, now()),
+         lower_name = coalesce(lower_name, (select full_name from profiles
+                                            where id = bonds.lower_id)),
+         upper_name = coalesce(upper_name, (select full_name from profiles
+                                            where id = bonds.upper_id))
+   where ended_at is null
+     and (lower_id = old.id or upper_id = old.id);
 
   return old;
 end;
