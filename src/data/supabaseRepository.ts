@@ -30,6 +30,8 @@ interface LetterRow {
   receiver_archived_at: string | null
   sender_deleted_at: string | null
   receiver_deleted_at: string | null
+  bond_id: string | null
+  sent_at: string | null
 }
 
 interface ProfileRow {
@@ -55,6 +57,8 @@ const toLetter = (r: LetterRow): Letter => ({
   receiverArchivedAt: r.receiver_archived_at,
   senderDeletedAt: r.sender_deleted_at,
   receiverDeletedAt: r.receiver_deleted_at,
+  bondId: r.bond_id,
+  sentAt: r.sent_at,
 })
 
 const toProfile = (r: ProfileRow): Profile => ({
@@ -91,6 +95,20 @@ function letterErrorMessage(raw: string): string {
   if (raw.includes('violates check constraint')) return 'This letter is a little too long to send.'
   if (import.meta.env.DEV) console.error('[dear-jee] unmapped repository error', raw)
   return 'Something went wrong. Please try again.'
+}
+
+/**
+ * The function's exception names, turned into sentences. Matching on message
+ * text is what the existing linkErrorMessage does too — PostgREST does not
+ * pass through SQLSTATE for a plpgsql `raise exception`.
+ */
+function heldErrorMessage(message: string): string {
+  if (message.includes('NO_BOND')) return 'You are not connected to anyone yet.'
+  if (message.includes('LETTER_NOT_FOUND_OR_ALREADY_SENT')) {
+    return 'That letter has already been sent.'
+  }
+  if (message.includes('NOT_SIGNED_IN')) return 'You are not signed in.'
+  return 'That letter could not be sent.'
 }
 
 /**
@@ -311,6 +329,47 @@ export function createSupabaseRepositories(): {
           receiverName: row.receiver_name || 'you',
         }
         return ok(view)
+      })
+    },
+
+    async listChapter(_userId, bondId) {
+      return guard(async () => {
+        // No membership check here, unlike the mock: bonds_select_member and
+        // letters_select_participant both apply, so a guessed bond id returns
+        // an empty list rather than someone else's letters. The mock has to
+        // check by hand because it has no policies.
+        const { data, error } = await db
+          .from('letters')
+          .select('*')
+          .eq('bond_id', bondId)
+          .order('created_at', { ascending: false })
+        if (error) return fail(letterErrorMessage(error.message))
+        return ok((data as LetterRow[]).map(toLetter))
+      })
+    },
+
+    async listHeld(userId) {
+      return guard(async () => {
+        const { data, error } = await db
+          .from('letters')
+          .select('*')
+          .is('bond_id', null)
+          .eq('sender_id', userId)
+          .order('created_at', { ascending: false })
+        if (error) return fail(letterErrorMessage(error.message))
+        return ok((data as LetterRow[]).map(toLetter))
+      })
+    },
+
+    async sendHeld(letterId, _userId) {
+      return guard(async () => {
+        // An RPC, not an update: receiver_id, bond_id and sent_at are all
+        // blocked by the column grants AND by enforce_letter_update, and only
+        // a security definer function may fill them in.
+        const { data, error } = await db.rpc('send_held_letter', { letter_id: letterId })
+        if (error) return fail(heldErrorMessage(error.message))
+        if (data === null) return fail('That letter could not be sent.')
+        return ok(toLetter(data as LetterRow))
       })
     },
   }

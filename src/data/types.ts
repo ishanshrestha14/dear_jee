@@ -24,6 +24,39 @@ export interface Letter {
   receiverArchivedAt: string | null
   senderDeletedAt: string | null
   receiverDeletedAt: string | null
+  /**
+   * Which chapter this letter belongs to. Null means a HELD letter: written
+   * while its author had no bond, belonging to no chapter until it is sent.
+   */
+  bondId: string | null
+  /**
+   * When it was delivered. Null while held. `createdAt` always means WRITTEN,
+   * so a letter held for months keeps the date it was written and gains a
+   * separate sent date — never a rewritten one.
+   */
+  sentAt: string | null
+}
+
+/** One relationship, open or ended. A chapter. */
+export interface Bond {
+  id: string
+  /** The other person. Null once they delete their account. */
+  partnerId: string | null
+  /** Frozen at the end for a past chapter; the live name for the open one. */
+  partnerName: string
+  startedAt: string
+  /** Null for the one live bond. */
+  endedAt: string | null
+  /**
+   * Resolved per caller: whichever of the two database columns belongs to
+   * this user. A caller never sees the other side's.
+   */
+  seenEndAt: string | null
+  /**
+   * Letters in this chapter the CALLER can still see — their own deletes are
+   * already excluded, so it matches what opening the chapter shows.
+   */
+  letterCount: number
 }
 
 /** The narrow shape an anonymous reader is allowed to see. */
@@ -39,14 +72,27 @@ export type Result<T> = { data: T; error: null } | { data: null; error: string }
 
 export interface SendLetterInput {
   senderId: string
-  receiverId: string
+  /**
+   * Null writes a HELD letter, permitted only when the sender has no bond.
+   * Same act as sending, so it shares this one code path and one set of
+   * validation rather than gaining a `hold` method of its own.
+   */
+  receiverId: string | null
   message: string
 }
 
 export interface LetterRepository {
-  /** Every letter you sent or received, newest first, minus your archived ones. */
+  /**
+   * The CURRENT chapter: letters exchanged with your present partner, newest
+   * first, minus the ones you archived.
+   *
+   * SCOPED TO THE OPEN BOND — this is the central semantic change of the
+   * bonds work and the easiest thing to miss in a diff. It is NOT "every
+   * letter you participate in". Letters from a past relationship live in
+   * listChapter, and held letters in listHeld; neither appears here.
+   */
   listConversation(userId: string): Promise<Result<Letter[]>>
-  /** The ones you archived, newest first. */
+  /** The ones you archived WITHIN the current chapter, newest first. */
   listArchived(userId: string): Promise<Result<Letter[]>>
   send(input: SendLetterInput): Promise<Result<Letter>>
   markRead(letterId: string): Promise<Result<Letter>>
@@ -68,6 +114,19 @@ export interface LetterRepository {
    */
   setShared(letterId: string, shared: boolean): Promise<Result<Letter>>
   getBySlug(slug: string): Promise<Result<PublicLetter>>
+  /**
+   * Your held letters — written with no bond, addressed to nobody, newest
+   * first. Visible to their author and to no one else, ever.
+   */
+  listHeld(userId: string): Promise<Result<Letter[]>>
+  /**
+   * Addresses a held letter to the caller's current partner. Fails when the
+   * letter is already sent, is not yours, or you have no bond. `createdAt` is
+   * never altered.
+   */
+  sendHeld(letterId: string, userId: string): Promise<Result<Letter>>
+  /** One past chapter's letters, newest first. Read-only by construction. */
+  listChapter(userId: string, bondId: string): Promise<Result<Letter[]>>
 }
 
 export interface ProfileRepository {
@@ -75,4 +134,17 @@ export interface ProfileRepository {
   getByInviteCode(inviteCode: string): Promise<Result<Profile>>
   updateName(userId: string, fullName: string): Promise<Result<Profile>>
   linkPartner(userId: string, inviteCode: string): Promise<Result<Profile>>
+}
+
+export interface BondRepository {
+  /** Every bond this user has had, newest first. The open one, if any, is first. */
+  list(userId: string): Promise<Result<Bond[]>>
+  /**
+   * Ends the caller's current bond. Symmetric and immediate: both people are
+   * freed, both get a fresh invite code, and the whole correspondence moves to
+   * both archives. Returns the caller's updated profile.
+   */
+  unlink(userId: string): Promise<Result<Profile>>
+  /** Marks the ended-bond notice as seen by this user, so it stops showing. */
+  acknowledgeEnd(userId: string, bondId: string): Promise<Result<void>>
 }

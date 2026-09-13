@@ -6,6 +6,7 @@ function fixture(options: { unlinked?: boolean } = {}): ContractFixture {
   return {
     letters: repos.letters,
     profiles: repos.profiles,
+    bonds: repos.bonds,
     userId: MOCK_USER_ID,
     partnerId: MOCK_PARTNER_ID,
     unlinked: async () => fixture({ unlinked: true }),

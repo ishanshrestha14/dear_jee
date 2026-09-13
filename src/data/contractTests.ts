@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { LetterRepository, ProfileRepository } from './types'
+import type { BondRepository, LetterRepository, ProfileRepository } from './types'
 
 /** Everything a contract run needs from one repository implementation. */
 export interface ContractFixture {
   letters: LetterRepository
   profiles: ProfileRepository
+  bonds: BondRepository
   userId: string
   partnerId: string
   /** A second, unlinked pair, for the partner-linking cases. */
@@ -331,6 +332,116 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
         const result = await u.profiles.linkPartner(u.userId, self.data!.inviteCode)
         expect(result.data).toBeNull()
         expect(result.error).toBe('That invite link is your own.')
+      })
+    })
+
+    describe('bonds', () => {
+      it('reports one open bond for a linked pair', async () => {
+        const result = await fx.bonds.list(fx.userId)
+        expect(result.error).toBe(null)
+        expect(result.data).not.toBe(null)
+        const open = result.data!.filter((b) => b.endedAt === null)
+        expect(open).toHaveLength(1)
+        expect(open[0].partnerId).toBe(fx.partnerId)
+      })
+
+      it('reports no bond at all for an unlinked account', async () => {
+        const solo = await fx.unlinked()
+        const result = await solo.bonds.list(solo.userId)
+        expect(result.error).toBe(null)
+        expect(result.data).toEqual([])
+      })
+
+      it('unlinking closes the bond and frees both sides', async () => {
+        const unlinked = await fx.bonds.unlink(fx.userId)
+        expect(unlinked.error).toBe(null)
+        expect(unlinked.data!.partnerId).toBe(null)
+
+        const mine = await fx.profiles.getById(fx.userId)
+        const theirs = await fx.profiles.getById(fx.partnerId)
+        expect(mine.data!.partnerId).toBe(null)
+        expect(theirs.data!.partnerId).toBe(null)
+
+        const bonds = await fx.bonds.list(fx.userId)
+        expect(bonds.data!.filter((b) => b.endedAt === null)).toHaveLength(0)
+        expect(bonds.data!).toHaveLength(1)
+      })
+
+      it('unlinking issues both people a fresh invite code', async () => {
+        const before = (await fx.profiles.getById(fx.userId)).data!.inviteCode
+        const beforeTheirs = (await fx.profiles.getById(fx.partnerId)).data!.inviteCode
+        await fx.bonds.unlink(fx.userId)
+        const after = (await fx.profiles.getById(fx.userId)).data!.inviteCode
+        const afterTheirs = (await fx.profiles.getById(fx.partnerId)).data!.inviteCode
+        expect(after).not.toBe(before)
+        expect(afterTheirs).not.toBe(beforeTheirs)
+      })
+
+      it('unlinking moves the whole correspondence out of the current chapter', async () => {
+        const before = await fx.letters.listConversation(fx.userId)
+        expect(before.data!.length).toBeGreaterThan(0)
+        await fx.bonds.unlink(fx.userId)
+        const after = await fx.letters.listConversation(fx.userId)
+        expect(after.data).toEqual([])
+      })
+
+      it('a past chapter keeps its letters and its partner name', async () => {
+        await fx.bonds.unlink(fx.userId)
+        const bonds = await fx.bonds.list(fx.userId)
+        const past = bonds.data![0]
+        expect(past.endedAt).not.toBe(null)
+        expect(past.partnerName).not.toBe('')
+        expect(past.letterCount).toBeGreaterThan(0)
+
+        const chapter = await fx.letters.listChapter(fx.userId, past.id)
+        expect(chapter.error).toBe(null)
+        expect(chapter.data!.length).toBe(past.letterCount)
+      })
+
+      it('refuses to unlink someone who has no bond', async () => {
+        const solo = await fx.unlinked()
+        const result = await solo.bonds.unlink(solo.userId)
+        expect(result.error).not.toBe(null)
+      })
+
+      it('re-bonding the same person opens a distinct chapter', async () => {
+        await fx.bonds.unlink(fx.userId)
+        const theirs = (await fx.profiles.getById(fx.partnerId)).data!
+        const relinked = await fx.profiles.linkPartner(fx.userId, theirs.inviteCode)
+        expect(relinked.error).toBe(null)
+
+        const bonds = await fx.bonds.list(fx.userId)
+        expect(bonds.data!).toHaveLength(2)
+        expect(bonds.data!.filter((b) => b.endedAt === null)).toHaveLength(1)
+        const ids = new Set(bonds.data!.map((b) => b.id))
+        expect(ids.size).toBe(2)
+      })
+
+      it('a letter from the old chapter never reappears in the new one', async () => {
+        const original = (await fx.letters.listConversation(fx.userId)).data!
+        expect(original.length).toBeGreaterThan(0)
+        await fx.bonds.unlink(fx.userId)
+        const theirs = (await fx.profiles.getById(fx.partnerId)).data!
+        await fx.profiles.linkPartner(fx.userId, theirs.inviteCode)
+
+        const now = await fx.letters.listConversation(fx.userId)
+        expect(now.data).toEqual([])
+        const archived = await fx.letters.listArchived(fx.userId)
+        expect(archived.data).toEqual([])
+      })
+
+      it('acknowledging the end stops the notice for that user only', async () => {
+        await fx.bonds.unlink(fx.userId)
+        const past = (await fx.bonds.list(fx.userId)).data![0]
+        expect(past.seenEndAt).toBe(null)
+
+        const ack = await fx.bonds.acknowledgeEnd(fx.userId, past.id)
+        expect(ack.error).toBe(null)
+
+        const mine = (await fx.bonds.list(fx.userId)).data![0]
+        expect(mine.seenEndAt).not.toBe(null)
+        const theirs = (await fx.bonds.list(fx.partnerId)).data![0]
+        expect(theirs.seenEndAt).toBe(null)
       })
     })
   })

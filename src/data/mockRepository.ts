@@ -1,6 +1,8 @@
 import { generateSlug } from '../lib/slug'
 import { validateLetter } from '../lib/validation'
 import type {
+  Bond,
+  BondRepository,
   Letter,
   LetterRepository,
   Profile,
@@ -12,6 +14,7 @@ import type {
 
 export const MOCK_USER_ID = 'user-jee'
 export const MOCK_PARTNER_ID = 'user-love'
+export const MOCK_BOND_ID = 'bond-seed'
 
 const ok = <T>(data: T): Result<T> => ({ data, error: null })
 const fail = <T>(error: string): Result<T> => ({ data: null, error })
@@ -40,6 +43,50 @@ function seedProfiles(unlinked: boolean): Profile[] {
   ]
 }
 
+/**
+ * The stored shape, mirroring the bonds TABLE rather than the Bond DTO. The
+ * DTO resolves partnerId, partnerName and seenEndAt per caller, so it cannot
+ * be what is stored.
+ *
+ * Named MockBondRow, not BondRow: supabaseRepository.ts has its own snake_case
+ * BondRow for the same table, and two same-named types with different casing
+ * in neighbouring files is how someone ends up mapping the wrong one.
+ */
+interface MockBondRow {
+  id: string
+  lowerId: string | null
+  upperId: string | null
+  lowerName: string | null
+  upperName: string | null
+  startedAt: string
+  endedAt: string | null
+  lowerSeenEndAt: string | null
+  upperSeenEndAt: string | null
+}
+
+/** Canonical ordering, lower id first — the same rule the SQL uses. */
+function canonical(a: string, b: string): [string, string] {
+  return a < b ? [a, b] : [b, a]
+}
+
+function seedBonds(unlinked: boolean): MockBondRow[] {
+  if (unlinked) return []
+  const [lower, upper] = canonical(MOCK_USER_ID, MOCK_PARTNER_ID)
+  return [
+    {
+      id: MOCK_BOND_ID,
+      lowerId: lower,
+      upperId: upper,
+      lowerName: null,
+      upperName: null,
+      startedAt: '2026-01-01T09:10:00.000Z',
+      endedAt: null,
+      lowerSeenEndAt: null,
+      upperSeenEndAt: null,
+    },
+  ]
+}
+
 function seedLetters(): Letter[] {
   const base = {
     senderId: MOCK_PARTNER_ID,
@@ -53,6 +100,8 @@ function seedLetters(): Letter[] {
     receiverArchivedAt: null,
     senderDeletedAt: null,
     receiverDeletedAt: null,
+    bondId: MOCK_BOND_ID,
+    sentAt: null,
   }
   return [
     {
@@ -107,25 +156,86 @@ function isArchivedBy(l: Letter, userId: string): boolean {
 export function createMockRepositories(options: MockOptions = {}): {
   letters: LetterRepository
   profiles: ProfileRepository
+  bonds: BondRepository
 } {
   const profiles = seedProfiles(options.unlinked ?? false)
   const letters = seedLetters()
+  const bonds = seedBonds(options.unlinked ?? false)
 
   const findProfile = (id: string) => profiles.find((p) => p.id === id)
 
+  const openBondFor = (userId: string): MockBondRow | undefined =>
+    bonds.find((b) => b.endedAt === null && (b.lowerId === userId || b.upperId === userId))
+
+  const bondsFor = (userId: string): MockBondRow[] =>
+    bonds
+      .filter((b) => b.lowerId === userId || b.upperId === userId)
+      .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))
+
   const letterRepository: LetterRepository = {
     async listConversation(userId) {
+      // Scoped to the OPEN bond. No bond means no current chapter, which is a
+      // real and renderable state, not an error: an unbonded person's home is
+      // empty and their held letters are in listHeld.
+      const open = openBondFor(userId)
+      if (open === undefined) return ok([])
       const mine = letters
-        .filter((l) => visibleTo(l, userId) && !isArchivedBy(l, userId))
+        .filter(
+          (l) =>
+            l.bondId === open.id && visibleTo(l, userId) && !isArchivedBy(l, userId),
+        )
         .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
       return ok(mine.map((l) => ({ ...l })))
     },
 
     async listArchived(userId) {
+      const open = openBondFor(userId)
+      if (open === undefined) return ok([])
       const mine = letters
-        .filter((l) => visibleTo(l, userId) && isArchivedBy(l, userId))
+        .filter(
+          (l) => l.bondId === open.id && visibleTo(l, userId) && isArchivedBy(l, userId),
+        )
         .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
       return ok(mine.map((l) => ({ ...l })))
+    },
+
+    async listChapter(userId, bondId) {
+      // Membership is checked here because the mock has no RLS. The database
+      // gets this from bonds_select_member plus letters_select_participant;
+      // without this check the two implementations diverge and a chapter id
+      // guessed in development would return someone else's letters.
+      const bond = bonds.find((b) => b.id === bondId)
+      if (bond === undefined) return fail('Chapter not found.')
+      if (bond.lowerId !== userId && bond.upperId !== userId) {
+        return fail('Chapter not found.')
+      }
+      const mine = letters
+        .filter((l) => l.bondId === bondId && visibleTo(l, userId))
+        .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+      return ok(mine.map((l) => ({ ...l })))
+    },
+
+    async listHeld(userId) {
+      const mine = letters
+        .filter((l) => l.bondId === null && l.senderId === userId)
+        .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+      return ok(mine.map((l) => ({ ...l })))
+    },
+
+    async sendHeld(letterId, userId) {
+      const letter = letters.find((l) => l.id === letterId)
+      if (letter === undefined) return fail('Letter not found.')
+      if (letter.senderId !== userId) return fail('Letter not found.')
+      if (letter.bondId !== null || letter.sentAt !== null) {
+        return fail('That letter has already been sent.')
+      }
+      const open = openBondFor(userId)
+      if (open === undefined) return fail('You are not connected to anyone yet.')
+      const partner = open.lowerId === userId ? open.upperId : open.lowerId
+      letter.receiverId = partner
+      letter.bondId = open.id
+      letter.sentAt = new Date().toISOString()
+      return ok({ ...letter })
     },
 
     async setArchived(letterId, userId, archived) {
@@ -154,12 +264,24 @@ export function createMockRepositories(options: MockOptions = {}): {
       const validation = validateLetter(message)
       if (!validation.ok) return fail(validation.reason)
 
+      const open = openBondFor(senderId)
+      // Mirrors letters_insert_own_to_partner: to a partner when you have
+      // one, to nobody when you do not, and never to anyone else.
+      if (receiverId === null) {
+        if (open !== undefined) return fail('You are connected to someone.')
+      } else {
+        if (open === undefined) return fail('You are not connected to anyone yet.')
+        const partner = open.lowerId === senderId ? open.upperId : open.lowerId
+        if (receiverId !== partner) return fail('You can only write to your partner.')
+      }
+
+      const now = new Date().toISOString()
       const letter: Letter = {
         id: `letter-${crypto.randomUUID()}`,
         senderId,
         receiverId,
         message: message.trim(),
-        createdAt: new Date().toISOString(),
+        createdAt: now,
         isRead: false,
         shareSlug: null,
         isPublic: false,
@@ -169,6 +291,8 @@ export function createMockRepositories(options: MockOptions = {}): {
         receiverArchivedAt: null,
         senderDeletedAt: null,
         receiverDeletedAt: null,
+        bondId: receiverId === null ? null : open!.id,
+        sentAt: receiverId === null ? null : now,
       }
       letters.push(letter)
       return ok({ ...letter })
@@ -255,9 +379,98 @@ export function createMockRepositories(options: MockOptions = {}): {
       // Both sides in one step: the link must not half-apply.
       self.partnerId = other.id
       other.partnerId = self.id
+      // Mirrors link_partners: a re-bond of the same pair opens a SECOND row
+      // rather than reopening the first, which is what makes a reunion its
+      // own chapter.
+      const [lower, upper] = canonical(self.id, other.id)
+      bonds.push({
+        id: `bond-${crypto.randomUUID()}`,
+        lowerId: lower,
+        upperId: upper,
+        lowerName: null,
+        upperName: null,
+        startedAt: new Date().toISOString(),
+        endedAt: null,
+        lowerSeenEndAt: null,
+        upperSeenEndAt: null,
+      })
       return ok({ ...self })
     },
   }
 
-  return { letters: letterRepository, profiles: profileRepository }
+  const toBondDto = (row: MockBondRow, userId: string): Bond => {
+    const iAmLower = row.lowerId === userId
+    const partnerId = iAmLower ? row.upperId : row.lowerId
+    const frozen = iAmLower ? row.upperName : row.lowerName
+    const live = partnerId === null ? undefined : findProfile(partnerId)?.fullName
+    return {
+      id: row.id,
+      partnerId,
+      // Frozen name wins for an ended bond; the live profile answers for the
+      // open one. Falls back to '' rather than throwing — a nameless past
+      // partner is a renderable state, an exception is not.
+      partnerName: frozen ?? live ?? '',
+      startedAt: row.startedAt,
+      endedAt: row.endedAt,
+      seenEndAt: iAmLower ? row.lowerSeenEndAt : row.upperSeenEndAt,
+      letterCount: letters.filter((l) => l.bondId === row.id && visibleTo(l, userId))
+        .length,
+    }
+  }
+
+  const bondRepository: BondRepository = {
+    async list(userId) {
+      return ok(bondsFor(userId).map((row) => toBondDto(row, userId)))
+    },
+
+    async unlink(userId) {
+      const me = findProfile(userId)
+      if (me === undefined) return fail('Profile not found.')
+      const open = openBondFor(userId)
+      if (open === undefined) return fail('You are not connected to anyone.')
+      const otherId = open.lowerId === userId ? open.upperId : open.lowerId
+      const other = otherId === null ? undefined : findProfile(otherId)
+
+      const at = new Date().toISOString()
+      // Freeze both names BEFORE clearing partnerId, exactly as
+      // unlink_partner does: afterwards neither profile can resolve the
+      // other, so a chapter with no frozen title would render blank.
+      open.endedAt = at
+      open.lowerName =
+        open.lowerName ?? (open.lowerId === userId ? me.fullName : (other?.fullName ?? ''))
+      open.upperName =
+        open.upperName ?? (open.upperId === userId ? me.fullName : (other?.fullName ?? ''))
+
+      for (const letter of letters) {
+        if (letter.bondId !== open.id) continue
+        if (letter.senderId !== null) letter.senderArchivedAt ??= at
+        if (letter.receiverId !== null) letter.receiverArchivedAt ??= at
+        letter.senderName ??= letter.senderId === null ? null : findProfile(letter.senderId)?.fullName ?? null
+        letter.receiverName ??= letter.receiverId === null ? null : findProfile(letter.receiverId)?.fullName ?? null
+      }
+
+      me.partnerId = null
+      me.inviteCode = `${me.inviteCode}-2`
+      if (other !== undefined) {
+        other.partnerId = null
+        other.inviteCode = `${other.inviteCode}-2`
+      }
+      return ok({ ...me })
+    },
+
+    async acknowledgeEnd(userId, bondId) {
+      const row = bonds.find((b) => b.id === bondId)
+      if (row === undefined) return fail('Chapter not found.')
+      if (row.lowerId !== userId && row.upperId !== userId) {
+        return fail('Chapter not found.')
+      }
+      if (row.endedAt === null) return fail('That bond has not ended.')
+      const at = new Date().toISOString()
+      if (row.lowerId === userId) row.lowerSeenEndAt ??= at
+      else row.upperSeenEndAt ??= at
+      return ok(undefined)
+    },
+  }
+
+  return { letters: letterRepository, profiles: profileRepository, bonds: bondRepository }
 }
