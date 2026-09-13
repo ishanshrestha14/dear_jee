@@ -336,6 +336,91 @@ $$;
 revoke all on function unlink_partner() from public;
 grant execute on function unlink_partner() to authenticated;
 
+-- Addresses a held letter to the caller's current partner. created_at is
+-- never touched: the letter's date is when it was WRITTEN, which is the whole
+-- point of holding it.
+create or replace function send_held_letter(letter_id uuid)
+returns letters
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  me_id   uuid := auth.uid();
+  bond    bonds;
+  target  uuid;
+  result  letters;
+begin
+  if me_id is null then
+    raise exception 'NOT_SIGNED_IN';
+  end if;
+
+  select * into bond from bonds
+   where ended_at is null and (lower_id = me_id or upper_id = me_id)
+     for update;
+  if bond is null then
+    raise exception 'NO_BOND';
+  end if;
+
+  target := case when bond.lower_id is distinct from me_id
+                 then bond.lower_id else bond.upper_id end;
+  if target is null then
+    raise exception 'NO_BOND';
+  end if;
+
+  -- `is distinct from` throughout: a NULL sender_id on a letter whose author
+  -- was deleted would make `<>` yield NULL, which is falsy in an if, so the
+  -- guard would silently permit a stranger to send it.
+  update letters
+     set receiver_id = target,
+         bond_id     = bond.id,
+         sent_at     = now()
+   where id = letter_id
+     and sender_id is not distinct from me_id
+     and receiver_id is null
+  returning * into result;
+
+  if result is null then
+    raise exception 'LETTER_NOT_FOUND_OR_ALREADY_SENT';
+  end if;
+  return result;
+end;
+$$;
+
+revoke all on function send_held_letter(uuid) from public;
+grant execute on function send_held_letter(uuid) to authenticated;
+
+-- The client has no write access to bonds at all, so dismissing the
+-- "this ended" notice needs a function of its own.
+create or replace function acknowledge_bond_end(bond_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  me_id uuid := auth.uid();
+begin
+  if me_id is null then
+    raise exception 'NOT_SIGNED_IN';
+  end if;
+
+  update bonds
+     set lower_seen_end_at = case when lower_id is not distinct from me_id
+                                  then coalesce(lower_seen_end_at, now())
+                                  else lower_seen_end_at end,
+         upper_seen_end_at = case when upper_id is not distinct from me_id
+                                  then coalesce(upper_seen_end_at, now())
+                                  else upper_seen_end_at end
+   where id = bond_id
+     and ended_at is not null
+     and (lower_id is not distinct from me_id or upper_id is not distinct from me_id);
+end;
+$$;
+
+revoke all on function acknowledge_bond_end(uuid) from public;
+grant execute on function acknowledge_bond_end(uuid) to authenticated;
+
 -- When someone leaves, their letters must not leave with them. This freezes
 -- the name as it was at that moment and archives the survivor's side, so the
 -- correspondence moves quietly to the archive rather than sitting in the
@@ -475,7 +560,33 @@ begin
   if new.sender_id is distinct from old.sender_id and new.sender_id is not null then
     raise exception 'IMMUTABLE_COLUMN';
   end if;
-  if new.receiver_id is distinct from old.receiver_id and new.receiver_id is not null then
+  -- receiver_id may go to NULL (the `on delete set null` action firing), and
+  -- may be filled in ONCE from null by a security definer function — that is
+  -- send_held_letter addressing a held letter. Nothing else.
+  --
+  -- current_user is 'authenticated' for every PostgREST request, so a client
+  -- can still never change receiver_id by any path. Once addressed, a letter
+  -- can never be re-addressed by anyone, which is the property the original
+  -- check exists to guarantee: otherwise either party could re-point
+  -- receiver_id into a stranger's inbox and defeat the insert policy's
+  -- partner check.
+  if new.receiver_id is distinct from old.receiver_id
+     and new.receiver_id is not null
+     and not (old.receiver_id is null and current_user <> 'authenticated') then
+    raise exception 'IMMUTABLE_COLUMN';
+  end if;
+
+  -- bond_id and sent_at follow the same rule: fillable once, from null, and
+  -- only from inside the database. A client that could set bond_id would file
+  -- a letter into someone else's chapter.
+  if new.bond_id is distinct from old.bond_id
+     and new.bond_id is not null
+     and not (old.bond_id is null and current_user <> 'authenticated') then
+    raise exception 'IMMUTABLE_COLUMN';
+  end if;
+  if new.sent_at is distinct from old.sent_at
+     and new.sent_at is not null
+     and not (old.sent_at is null and current_user <> 'authenticated') then
     raise exception 'IMMUTABLE_COLUMN';
   end if;
 
