@@ -4,11 +4,13 @@
 
 alter table profiles enable row level security;
 alter table letters  enable row level security;
+alter table bonds enable row level security;
 
 -- Defense in depth: anon is stopped today only by the absence of a policy.
 -- Make the deny explicit rather than emergent.
 revoke all on profiles from anon;
 revoke all on letters from anon;
+revoke all on bonds from anon;
 
 -- ---------- profiles ----------
 
@@ -33,17 +35,37 @@ create policy profiles_update_self on profiles
 revoke update on profiles from authenticated;
 grant update (full_name) on profiles to authenticated;
 
+-- ---------- bonds ----------
+
+-- You may read a bond you were part of, open or closed. That is what makes a
+-- past chapter's title readable after the fact.
+drop policy if exists bonds_select_member on bonds;
+create policy bonds_select_member on bonds
+  for select to authenticated
+  using (lower_id = auth.uid() or upper_id = auth.uid());
+
+-- There is deliberately NO insert/update/delete policy. link_partners,
+-- unlink_partner, freeze_profile_letters and acknowledge_bond_end are
+-- security definer and are the only writers. A client that could write bonds
+-- could bond itself to a stranger.
+revoke insert, update, delete on bonds from authenticated;
+
 -- ---------- letters ----------
 
--- You may write only as yourself, and only to the partner you are linked to.
--- Without the second condition an authenticated user could write letters to
--- any account whose id they could guess.
+-- You may write only as yourself, and only to the partner you are linked to —
+-- or, when you have no partner at all, to nobody, which is a held letter.
+-- Without the partner condition an authenticated user could write letters
+-- into any account whose id they could guess.
+--
+-- Held letters are restricted to the UNBONDED. Someone bonded sitting on an
+-- unsent letter is a different feature and is deliberately not built.
 drop policy if exists letters_insert_own_to_partner on letters;
 create policy letters_insert_own_to_partner on letters
   for insert to authenticated
   with check (
     sender_id = auth.uid()
-    and receiver_id = current_partner_id()
+    and (receiver_id = current_partner_id()
+         or (receiver_id is null and current_partner_id() is null))
   );
 
 -- Deleting a letter must mean you cannot read it, not merely that the app
@@ -78,3 +100,11 @@ grant update (is_read, is_public, share_slug,
               sender_archived_at, receiver_archived_at,
               sender_deleted_at, receiver_deleted_at)
   on letters to authenticated;
+
+-- Column grants are checked BEFORE RLS. The UPDATE path has been locked down
+-- since Phase 3; the INSERT path never was, so Supabase's default table grant
+-- currently lets a client set is_public, share_slug or sender_archived_at at
+-- insert time. This closes that, and is REQUIRED for bonds: a client that
+-- could set bond_id itself would file a letter into someone else's chapter.
+revoke insert on letters from authenticated;
+grant insert (sender_id, receiver_id, message) on letters to authenticated;
