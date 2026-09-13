@@ -565,8 +565,17 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
             message: 'Mine alone.',
           })
         ).data!
+        const theirs = (await solo.profiles.getById(solo.partnerId)).data!
+        await solo.profiles.linkPartner(solo.userId, theirs.inviteCode)
+
         const result = await solo.letters.sendHeld(written.id, solo.partnerId)
         expect(result.error).not.toBe(null)
+
+        const held = await solo.letters.listHeld(solo.userId)
+        expect(held.data!.map((l) => l.id)).toContain(written.id)
+        const stillHeld = held.data!.find((l) => l.id === written.id)!
+        expect(stillHeld.receiverId).toBe(null)
+        expect(stillHeld.sentAt).toBe(null)
       })
     })
   })
