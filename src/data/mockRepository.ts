@@ -217,7 +217,7 @@ export function createMockRepositories(options: MockOptions = {}): {
 
     async listHeld(userId) {
       const mine = letters
-        .filter((l) => l.bondId === null && l.senderId === userId)
+        .filter((l) => l.bondId === null && l.senderId === userId && visibleTo(l, userId))
         .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
       return ok(mine.map((l) => ({ ...l })))
     },
@@ -226,7 +226,7 @@ export function createMockRepositories(options: MockOptions = {}): {
       const letter = letters.find((l) => l.id === letterId)
       if (letter === undefined) return fail('Letter not found.')
       if (letter.senderId !== userId) return fail('Letter not found.')
-      if (letter.bondId !== null || letter.sentAt !== null) {
+      if (letter.receiverId !== null || letter.sentAt !== null) {
         return fail('That letter has already been sent.')
       }
       const open = openBondFor(userId)
