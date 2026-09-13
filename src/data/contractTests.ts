@@ -444,5 +444,130 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
         expect(theirs.seenEndAt).toBe(null)
       })
     })
+
+    describe('held letters', () => {
+      it('an unbonded author can write one, and only they can see it', async () => {
+        const solo = await fx.unlinked()
+        const written = await solo.letters.send({
+          senderId: solo.userId,
+          receiverId: null,
+          message: 'Dear whoever you turn out to be,',
+        })
+        expect(written.error).toBe(null)
+        expect(written.data!.receiverId).toBe(null)
+        expect(written.data!.bondId).toBe(null)
+        expect(written.data!.sentAt).toBe(null)
+
+        const held = await solo.letters.listHeld(solo.userId)
+        expect(held.data!).toHaveLength(1)
+
+        const other = await solo.letters.listHeld(solo.partnerId)
+        expect(other.data!).toEqual([])
+      })
+
+      it('a held letter is in no chapter', async () => {
+        const solo = await fx.unlinked()
+        await solo.letters.send({
+          senderId: solo.userId,
+          receiverId: null,
+          message: 'Not sent yet.',
+        })
+        const current = await solo.letters.listConversation(solo.userId)
+        expect(current.data).toEqual([])
+        const archived = await solo.letters.listArchived(solo.userId)
+        expect(archived.data).toEqual([])
+      })
+
+      it('a bonded author cannot write one', async () => {
+        const result = await fx.letters.send({
+          senderId: fx.userId,
+          receiverId: null,
+          message: 'Should be refused.',
+        })
+        expect(result.error).not.toBe(null)
+      })
+
+      it('sending one keeps the date it was written', async () => {
+        const solo = await fx.unlinked()
+        const written = (
+          await solo.letters.send({
+            senderId: solo.userId,
+            receiverId: null,
+            message: 'Written long before it was sent.',
+          })
+        ).data!
+
+        const theirs = (await solo.profiles.getById(solo.partnerId)).data!
+        await solo.profiles.linkPartner(solo.userId, theirs.inviteCode)
+
+        const sent = await solo.letters.sendHeld(written.id, solo.userId)
+        expect(sent.error).toBe(null)
+        expect(sent.data!.createdAt).toBe(written.createdAt)
+        expect(sent.data!.sentAt).not.toBe(null)
+        expect(sent.data!.receiverId).toBe(solo.partnerId)
+        expect(sent.data!.bondId).not.toBe(null)
+      })
+
+      it('a sent held letter joins the current chapter and leaves the held list', async () => {
+        const solo = await fx.unlinked()
+        const written = (
+          await solo.letters.send({
+            senderId: solo.userId,
+            receiverId: null,
+            message: 'On its way at last.',
+          })
+        ).data!
+        const theirs = (await solo.profiles.getById(solo.partnerId)).data!
+        await solo.profiles.linkPartner(solo.userId, theirs.inviteCode)
+        await solo.letters.sendHeld(written.id, solo.userId)
+
+        const held = await solo.letters.listHeld(solo.userId)
+        expect(held.data).toEqual([])
+        const current = await solo.letters.listConversation(solo.userId)
+        expect(current.data!.map((l) => l.id)).toContain(written.id)
+      })
+
+      it('refuses a second send of the same letter', async () => {
+        const solo = await fx.unlinked()
+        const written = (
+          await solo.letters.send({
+            senderId: solo.userId,
+            receiverId: null,
+            message: 'Only once.',
+          })
+        ).data!
+        const theirs = (await solo.profiles.getById(solo.partnerId)).data!
+        await solo.profiles.linkPartner(solo.userId, theirs.inviteCode)
+
+        expect((await solo.letters.sendHeld(written.id, solo.userId)).error).toBe(null)
+        expect((await solo.letters.sendHeld(written.id, solo.userId)).error).not.toBe(null)
+      })
+
+      it('refuses to send when the author has no bond', async () => {
+        const solo = await fx.unlinked()
+        const written = (
+          await solo.letters.send({
+            senderId: solo.userId,
+            receiverId: null,
+            message: 'Nobody to send it to.',
+          })
+        ).data!
+        const result = await solo.letters.sendHeld(written.id, solo.userId)
+        expect(result.error).not.toBe(null)
+      })
+
+      it("refuses to send someone else's held letter", async () => {
+        const solo = await fx.unlinked()
+        const written = (
+          await solo.letters.send({
+            senderId: solo.userId,
+            receiverId: null,
+            message: 'Mine alone.',
+          })
+        ).data!
+        const result = await solo.letters.sendHeld(written.id, solo.partnerId)
+        expect(result.error).not.toBe(null)
+      })
+    })
   })
 }

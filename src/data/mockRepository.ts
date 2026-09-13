@@ -216,6 +216,10 @@ export function createMockRepositories(options: MockOptions = {}): {
     },
 
     async listHeld(userId) {
+      // A held letter has no receiver, so visibleTo cannot speak for it: the
+      // author is the only person who may ever see one. visibleTo still does
+      // the senderDeletedAt check that keeps a deleted author's held letters
+      // from lingering, matching letters_select_participant in production.
       const mine = letters
         .filter((l) => l.bondId === null && l.senderId === userId && visibleTo(l, userId))
         .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
@@ -226,15 +230,23 @@ export function createMockRepositories(options: MockOptions = {}): {
       const letter = letters.find((l) => l.id === letterId)
       if (letter === undefined) return fail('Letter not found.')
       if (letter.senderId !== userId) return fail('Letter not found.')
+      // Mirrors the trigger: receiverId is fillable exactly once, from null.
+      // The sentAt half matters too: a recipient's account deletion returns
+      // receiverId to null via on delete set null, and without this check a
+      // delivered letter would re-enter the held window and could be
+      // re-sent to a NEW partner while carrying its original date.
       if (letter.receiverId !== null || letter.sentAt !== null) {
         return fail('That letter has already been sent.')
       }
       const open = openBondFor(userId)
       if (open === undefined) return fail('You are not connected to anyone yet.')
       const partner = open.lowerId === userId ? open.upperId : open.lowerId
+      if (partner === null) return fail('You are not connected to anyone yet.')
       letter.receiverId = partner
       letter.bondId = open.id
       letter.sentAt = new Date().toISOString()
+      // createdAt deliberately untouched: the letter's date is when it was
+      // written, which is the entire reason for holding it.
       return ok({ ...letter })
     },
 
