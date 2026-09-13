@@ -368,9 +368,13 @@ begin
     raise exception 'NO_BOND';
   end if;
 
-  -- `is distinct from` throughout: a NULL sender_id on a letter whose author
-  -- was deleted would make `<>` yield NULL, which is falsy in an if, so the
-  -- guard would silently permit a stranger to send it.
+  -- `is not distinct from`, not `=`: this comparison lives in a WHERE
+  -- clause, not an `if`, so a NULL result would already exclude the row
+  -- rather than silently pass anything through — a plain `=` would fail
+  -- safe here too. The reason to use `is not distinct from` anyway is
+  -- consistency with how this file writes every other identity check, so a
+  -- reader never has to stop and ask which comparison operator this
+  -- particular spot needed.
   update letters
      set receiver_id = target,
          bond_id     = bond.id,
@@ -378,6 +382,7 @@ begin
    where id = letter_id
      and sender_id is not distinct from me_id
      and receiver_id is null
+     and sent_at is null
   returning * into result;
 
   if result is null then
@@ -562,17 +567,32 @@ begin
   end if;
   -- receiver_id may go to NULL (the `on delete set null` action firing), and
   -- may be filled in ONCE from null by a security definer function — that is
-  -- send_held_letter addressing a held letter. Nothing else.
+  -- send_held_letter addressing a held letter. Nothing else. The exemption
+  -- also requires old.sent_at is null, because receiver_id can return to
+  -- NULL on a letter that was already delivered (the recipient later
+  -- deleting their account fires the same `on delete set null` action) —
+  -- without the sent_at check that letter would re-enter the "never
+  -- addressed" exemption window and could be re-sent to a new partner,
+  -- carrying its original created_at into a chapter it was never part of.
+  -- sent_at, once set, is otherwise immutable, so it is the one field that
+  -- still remembers "this was delivered" after receiver_id has been wiped.
   --
-  -- current_user is 'authenticated' for every PostgREST request, so a client
-  -- can still never change receiver_id by any path. Once addressed, a letter
-  -- can never be re-addressed by anyone, which is the property the original
-  -- check exists to guarantee: otherwise either party could re-point
-  -- receiver_id into a stranger's inbox and defeat the insert policy's
-  -- partner check.
+  -- current_user is 'authenticated' for every PostgREST request, so a
+  -- client can still never change receiver_id by any path. The exemption
+  -- also excludes 'anon' explicitly rather than naming the definer-function
+  -- owner role (which isn't knowable from this file) — this makes the
+  -- exemption an anti-allowlist, true for anon too, so the trigger only
+  -- stays a real backstop as long as policies.sql also revokes all
+  -- privileges on letters from anon and grants it no policy of its own; a
+  -- reader who loosens that grant must revisit this check. Once addressed,
+  -- a never-before-sent letter can never be re-addressed by anyone else,
+  -- which is the property the original check exists to guarantee:
+  -- otherwise either party could re-point receiver_id into a stranger's
+  -- inbox and defeat the insert policy's partner check.
   if new.receiver_id is distinct from old.receiver_id
      and new.receiver_id is not null
-     and not (old.receiver_id is null and current_user <> 'authenticated') then
+     and not (old.receiver_id is null and old.sent_at is null
+              and current_user not in ('authenticated', 'anon')) then
     raise exception 'IMMUTABLE_COLUMN';
   end if;
 
@@ -581,12 +601,12 @@ begin
   -- a letter into someone else's chapter.
   if new.bond_id is distinct from old.bond_id
      and new.bond_id is not null
-     and not (old.bond_id is null and current_user <> 'authenticated') then
+     and not (old.bond_id is null and current_user not in ('authenticated', 'anon')) then
     raise exception 'IMMUTABLE_COLUMN';
   end if;
   if new.sent_at is distinct from old.sent_at
      and new.sent_at is not null
-     and not (old.sent_at is null and current_user <> 'authenticated') then
+     and not (old.sent_at is null and current_user not in ('authenticated', 'anon')) then
     raise exception 'IMMUTABLE_COLUMN';
   end if;
 
