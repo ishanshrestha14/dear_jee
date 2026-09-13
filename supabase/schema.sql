@@ -38,6 +38,63 @@ alter table letters add column if not exists receiver_name text;
 alter table letters alter column sender_id   drop not null;
 alter table letters alter column receiver_id drop not null;
 
+-- ---------- bonds ----------
+--
+-- A relationship is a row, not a column. profiles.partner_id answered "who am
+-- I with now" and nothing else; it could not say that a relationship had
+-- ended, when it ran, or that two people had been together twice.
+--
+-- INVARIANT, maintained only by link_partners and unlink_partner:
+--   profiles.partner_id is not null  <=>  a bonds row exists containing that
+--   profile with ended_at is null.
+-- partner_id is a cache. Both writes happen in the same security definer
+-- transaction, so it cannot drift. Nothing else may write either.
+create table if not exists bonds (
+  id          uuid primary key default gen_random_uuid(),
+  -- Canonical ordering, LOWER uuid first: a pair has exactly one
+  -- representation, and it matches the ascending-uuid lock order that
+  -- link_partners and unlink_partner already use — so the deadlock reasoning
+  -- in those functions carries over to this table unchanged.
+  lower_id    uuid references profiles(id) on delete set null,
+  upper_id    uuid references profiles(id) on delete set null,
+  -- Frozen when the bond ends. After unbonding,
+  -- profiles_select_self_or_partner stops either person reading the other's
+  -- profile at all, so a past chapter that resolved its title through
+  -- profiles would render blank. Same reason unlink_partner already freezes
+  -- sender_name/receiver_name onto letters.
+  lower_name  text,
+  upper_name  text,
+  started_at  timestamptz not null default now(),
+  ended_at    timestamptz,
+  -- When each side saw the "this ended" notice. Null means not yet shown.
+  lower_seen_end_at timestamptz,
+  upper_seen_end_at timestamptz,
+  -- Both null guards are load-bearing, not defensive noise. Each id goes null
+  -- when that person deletes their account, so a bond both of whose members
+  -- have left carries two nulls — and `null is distinct from null` is FALSE,
+  -- which would make a bare `lower_id is distinct from upper_id` fail exactly
+  -- then and block the `on delete set null` action from firing at all.
+  constraint bonds_distinct_members
+    check (lower_id is null or upper_id is null or lower_id <> upper_id)
+);
+
+-- At most one OPEN bond per person, enforced by the database rather than by a
+-- read-then-write check inside link_partners. The existing
+-- `if me.partner_id is not null then raise ALREADY_LINKED` can in principle be
+-- raced; a partial unique index cannot. Closed bonds are unconstrained, which
+-- is what lets the same pair bond twice and read as two chapters.
+create unique index if not exists bonds_one_active_lower
+  on bonds(lower_id) where ended_at is null;
+create unique index if not exists bonds_one_active_upper
+  on bonds(upper_id) where ended_at is null;
+
+alter table letters add column if not exists bond_id uuid references bonds(id);
+-- Null while a letter is held. created_at keeps meaning WRITTEN; sent_at is
+-- when it was delivered. For an ordinary letter the two are the same instant.
+alter table letters add column if not exists sent_at timestamptz;
+
+create index if not exists letters_bond_id_idx on letters(bond_id);
+
 -- The keys were `on delete cascade`, which meant one person deleting their
 -- account destroyed the other person's letters too. They now go to null: the
 -- account goes, the letters stay.
