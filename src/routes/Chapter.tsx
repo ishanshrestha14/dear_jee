@@ -3,6 +3,8 @@ import { AnimatePresence } from 'framer-motion'
 import { Link, useParams } from 'react-router-dom'
 import { LetterCard } from '../components/LetterCard'
 import { LetterModal } from '../components/LetterModal'
+import { ShareModal } from '../components/ShareModal'
+import { Toast } from '../components/Toast'
 import { useAuth } from '../auth/useAuth'
 import { useBonds } from '../hooks/useBonds'
 import { letterRepository } from '../data'
@@ -11,30 +13,52 @@ import type { Letter } from '../data/types'
 export default function Chapter() {
   const { bondId } = useParams<{ bondId: string }>()
   const { userId, profile } = useAuth()
-  const { past } = useBonds()
+  const { past, reload: reloadBonds } = useBonds()
   const [letters, setLetters] = useState<Letter[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState<Letter | null>(null)
+  const [sharingId, setSharingId] = useState<string | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
 
   const bond = past.find((b) => b.id === bondId) ?? null
+
+  // Derived, not a snapshot: toggling sharing reloads the list below, and a
+  // captured Letter would still say "Only you two" and show no link, seconds
+  // after the user turned sharing on. Mirrors Archive.tsx.
+  const sharing = sharingId === null ? null : (letters.find((l) => l.id === sharingId) ?? null)
+
+  const load = useCallback(async () => {
+    if (userId === null || bondId === undefined) return
+    const result = await letterRepository.listChapter(userId, bondId)
+    if (result.error !== null) setError(result.error)
+    else {
+      setLetters(result.data)
+      setError(null)
+    }
+  }, [userId, bondId])
 
   useEffect(() => {
     if (userId === null || bondId === undefined) return
     let cancelled = false
     void (async () => {
-      const result = await letterRepository.listChapter(userId, bondId)
+      await load()
       if (cancelled) return
-      if (result.error !== null) setError(result.error)
-      else setLetters(result.data)
       setLoading(false)
     })()
     return () => {
       cancelled = true
     }
-  }, [userId, bondId])
+  }, [userId, bondId, load])
 
   const closeLetter = useCallback(() => setOpen(null), [])
+  const closeShare = useCallback(() => setSharingId(null), [])
+  const openShare = useCallback(() => {
+    setOpen((current) => {
+      if (current !== null) setSharingId(current.id)
+      return current
+    })
+  }, [])
 
   // The frozen name on the letter answers first: after unbonding, nothing can
   // resolve the other person's profile, so a live lookup would render blank.
@@ -97,13 +121,57 @@ export default function Chapter() {
             recipientName={recipientOf(open)}
             archived
             readOnly
-            trapActive
+            // ShareModal registers its own Escape handler; while it is open the
+            // letter modal must ignore Escape too, or one keypress closes both.
+            // Mirrors Archive.tsx exactly.
+            trapActive={sharingId === null}
             onClose={closeLetter}
+            // readOnly hides the Archive control, so nothing can ever call
+            // this. Kept as a no-op — not omitted — so the prop stays
+            // required and the intent (unreachable, not forgotten) is clear.
             onArchive={() => {}}
-            onDelete={() => {}}
-            onShare={() => {}}
+            onDelete={() => {
+              const letterId = open.id
+              setOpen(null)
+              void (async () => {
+                if (userId === null) return
+                const result = await letterRepository.deleteForMe(letterId, userId)
+                await load()
+                // letterCount on /chapters is derived from this same delete,
+                // so the bond list needs refreshing too or it goes stale.
+                await reloadBonds()
+                if (result.error !== null) setError(result.error)
+              })()
+            }}
+            onShare={openShare}
           />
         )}
+        {sharing && (
+          <ShareModal
+            key="share"
+            letter={sharing}
+            onClose={closeShare}
+            onSetShared={(next) => {
+              // Deliberately does NOT close the modal. Turning sharing on and
+              // immediately dismissing the panel would hide the link at the
+              // exact moment the user wanted it.
+              void (async () => {
+                if (userId === null) return
+                const result = await letterRepository.setShared(sharing.id, next)
+                await load()
+                if (result.error !== null) {
+                  // Deliberately NOT setError: the routes above early-return on
+                  // page-level error, which would replace the letter and the
+                  // whole grid with one line of text and leave no UI able to
+                  // clear it. Share failures belong in the toast.
+                  setToast(result.error)
+                }
+              })()
+            }}
+            onCopied={() => setToast('Link copied! Send it to them on WhatsApp 💌')}
+          />
+        )}
+        {toast !== null && <Toast key="toast" message={toast} onDone={() => setToast(null)} />}
       </AnimatePresence>
     </>
   )
