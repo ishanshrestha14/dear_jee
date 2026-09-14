@@ -3,6 +3,7 @@ import { letterRepository } from '../data'
 import { useAuth } from '../auth/useAuth'
 import { usePoll } from './usePoll'
 import type { Letter } from '../data/types'
+import type { BodyFont } from '../lib/validation'
 
 interface UseLetters {
   letters: Letter[]
@@ -12,7 +13,11 @@ interface UseLetters {
   partnerName: string
   loading: boolean
   error: string | null
-  sendLetter(message: string): Promise<{ ok: boolean; error?: string }>
+  sendLetter(
+    message: string,
+    salutation: string | null,
+    bodyFont: BodyFont | null,
+  ): Promise<{ ok: boolean; error?: string }>
   sendHeld(id: string): Promise<{ ok: boolean; error?: string }>
   markRead(id: string): Promise<void>
   setArchived(id: string, archived: boolean): Promise<void>
@@ -119,7 +124,7 @@ export function useLetters(): UseLetters {
   usePoll(poll, POLL_INTERVAL_MS)
 
   const sendLetter = useCallback<UseLetters['sendLetter']>(
-    async (message) => {
+    async (message, salutation, bodyFont) => {
       if (userId === null) return { ok: false, error: 'You are not signed in.' }
       // An unbonded author writes a HELD letter — receiverId null — rather
       // than being refused. The repository and the insert policy both enforce
@@ -128,10 +133,8 @@ export function useLetters(): UseLetters {
         senderId: userId,
         receiverId: partnerId,
         message,
-        // The composer does not yet offer these — a later task wires the
-        // picker through. Null is the documented default for both.
-        salutation: null,
-        bodyFont: null,
+        salutation,
+        bodyFont,
       })
       if (result.error !== null) return { ok: false, error: result.error }
       await load(userId)
