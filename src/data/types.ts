@@ -1,3 +1,7 @@
+import type { BodyFont } from '../lib/validation'
+
+export type { BodyFont }
+
 export interface Profile {
   id: string
   fullName: string
@@ -20,6 +24,13 @@ export interface Letter {
   /** Set only when the profile is deleted, freezing the name as it then was. */
   senderName: string | null
   receiverName: string | null
+  /**
+   * How the writer addressed the recipient. Null means the recipient's name,
+   * which is how every letter written before this feature reads.
+   */
+  salutation: string | null
+  /** The face the letter was written in. Null means the default, Lora. */
+  bodyFont: BodyFont | null
   senderArchivedAt: string | null
   receiverArchivedAt: string | null
   senderDeletedAt: string | null
@@ -65,6 +76,13 @@ export interface PublicLetter {
   createdAt: string
   senderName: string
   receiverName: string
+  /**
+   * How the writer addressed the recipient. Null means the recipient's name,
+   * which is how every letter written before this feature reads.
+   */
+  salutation: string | null
+  /** The face the letter was written in. Null means the default, Lora. */
+  bodyFont: BodyFont | null
 }
 
 /** Repositories report failure in the value, never by throwing. */
@@ -79,6 +97,10 @@ export interface SendLetterInput {
    */
   receiverId: string | null
   message: string
+  /** Null leaves the recipient's name as the salutation. */
+  salutation: string | null
+  /** Null leaves the default face. */
+  bodyFont: BodyFont | null
 }
 
 export interface LetterRepository {

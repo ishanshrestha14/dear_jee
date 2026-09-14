@@ -1,8 +1,9 @@
 import { supabase } from './supabaseClient'
 import { generateSlug } from '../lib/slug'
-import { validateLetter } from '../lib/validation'
+import { validateBodyFont, validateLetter, validateSalutation } from '../lib/validation'
 import type {
   Bond,
+  BodyFont,
   BondRepository,
   Letter,
   LetterRepository,
@@ -28,6 +29,8 @@ interface LetterRow {
   is_public: boolean
   sender_name: string | null
   receiver_name: string | null
+  salutation: string | null
+  body_font: BodyFont | null
   sender_archived_at: string | null
   receiver_archived_at: string | null
   sender_deleted_at: string | null
@@ -55,6 +58,8 @@ const toLetter = (r: LetterRow): Letter => ({
   isPublic: r.is_public,
   senderName: r.sender_name,
   receiverName: r.receiver_name,
+  salutation: r.salutation,
+  bodyFont: r.body_font,
   senderArchivedAt: r.sender_archived_at,
   receiverArchivedAt: r.receiver_archived_at,
   senderDeletedAt: r.sender_deleted_at,
@@ -297,22 +302,33 @@ export function createSupabaseRepositories(): {
       })
     },
 
-    async send({ senderId, receiverId, message }: SendLetterInput) {
+    async send({ senderId, receiverId, message, salutation, bodyFont }: SendLetterInput) {
       return guard(async () => {
         // bond_id is deliberately absent from this insert: `grant insert
-        // (sender_id, receiver_id, message)` forbids it, and the insert policy
-        // already proves receiver_id is the caller's partner. A client that
-        // could choose bond_id could file a letter into someone else's
-        // chapter. The set_letter_bond trigger derives it instead.
+        // (sender_id, receiver_id, message, salutation, body_font)` forbids
+        // it, and the insert policy already proves receiver_id is the
+        // caller's partner. A client that could choose bond_id could file a
+        // letter into someone else's chapter. The set_letter_bond trigger
+        // derives it instead.
         //
-        // Validate before the round trip. The DB CHECK is the backstop, but
+        // Validate before the round trip. The DB CHECKs are the backstop, but
         // this is what produces the exact user-facing copy.
         const validation = validateLetter(message)
         if (!validation.ok) return fail(validation.reason)
+        const salutationCheck = validateSalutation(salutation)
+        if (!salutationCheck.ok) return fail(salutationCheck.reason)
+        const fontCheck = validateBodyFont(bodyFont)
+        if (!fontCheck.ok) return fail(fontCheck.reason)
 
         const { data, error } = await db
           .from('letters')
-          .insert({ sender_id: senderId, receiver_id: receiverId, message: message.trim() })
+          .insert({
+            sender_id: senderId,
+            receiver_id: receiverId,
+            message: message.trim(),
+            salutation: salutation === null ? null : salutation.trim(),
+            body_font: bodyFont,
+          })
           .select()
           .single()
         if (error) return fail(letterErrorMessage(error.message))
@@ -381,7 +397,14 @@ export function createSupabaseRepositories(): {
         if (error) return fail(letterErrorMessage(error.message))
 
         const rows = data as
-          | { message: string; created_at: string; sender_name: string; receiver_name: string }[]
+          | {
+              message: string
+              created_at: string
+              sender_name: string
+              receiver_name: string
+              salutation: string | null
+              body_font: BodyFont | null
+            }[]
           | null
         if (rows === null || rows.length === 0) return fail('This letter is not available.')
 
@@ -391,6 +414,8 @@ export function createSupabaseRepositories(): {
           createdAt: row.created_at,
           senderName: row.sender_name || 'Someone',
           receiverName: row.receiver_name || 'you',
+          salutation: row.salutation,
+          bodyFont: row.body_font,
         }
         return ok(view)
       })

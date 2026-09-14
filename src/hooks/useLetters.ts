@@ -95,6 +95,10 @@ export function useLetters(): UseLetters {
         senderId: userId,
         receiverId: partnerId,
         message,
+        // The composer does not yet offer these — a later task wires the
+        // picker through. Null is the documented default for both.
+        salutation: null,
+        bodyFont: null,
       })
       if (result.error !== null) return { ok: false, error: result.error }
       await load(userId)
