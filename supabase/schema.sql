@@ -520,17 +520,25 @@ create trigger profiles_freeze_letters
 -- entirely on the slug being unguessable. A function makes the slug a
 -- mandatory argument, so possession of the link is the only way in.
 --
--- Returns exactly the four columns the spec allows an anonymous reader to
+-- Returns exactly the six columns the spec allows an anonymous reader to
 -- see. Ids and emails are unreachable from here.
 --
 -- The joins are LEFT joins so a shared letter survives its author's account
 -- deletion, falling back to the frozen name rather than disappearing.
+--
+-- The return type gains two columns below, and `create or replace` cannot
+-- change a function's OUT columns — it fails with "cannot change return type
+-- of existing function". This drop is what makes the file re-runnable.
+drop function if exists get_public_letter(text);
+
 create or replace function get_public_letter(slug text)
 returns table (
   message       text,
   created_at    timestamptz,
   sender_name   text,
-  receiver_name text
+  receiver_name text,
+  salutation    text,
+  body_font     text
 )
 language sql
 stable
@@ -540,7 +548,9 @@ as $$
   select l.message,
          l.created_at,
          coalesce(sender.full_name, l.sender_name),
-         coalesce(receiver.full_name, l.receiver_name)
+         coalesce(receiver.full_name, l.receiver_name),
+         l.salutation,
+         l.body_font
   from letters l
   left join profiles sender   on sender.id   = l.sender_id
   left join profiles receiver on receiver.id = l.receiver_id
