@@ -16,6 +16,7 @@ const repositories = isSupabaseConfigured()
 
 export const letterRepository = repositories.letters
 export const profileRepository = repositories.profiles
+export const bondRepository = repositories.bonds
 
 /** Which adapter is live. */
 export const usingSupabase = isSupabaseConfigured()
@@ -26,4 +27,4 @@ if (import.meta.env.DEV) {
   console.info(`[dear-jee] data source: ${usingSupabase ? 'supabase' : 'mock'}`)
 }
 
-export type { Letter, Profile, PublicLetter, Result } from './types'
+export type { Bond, Letter, Profile, PublicLetter, Result } from './types'

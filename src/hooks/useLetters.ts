@@ -6,10 +6,13 @@ import type { Letter } from '../data/types'
 interface UseLetters {
   letters: Letter[]
   archived: Letter[]
+  held: Letter[]
+  hasBond: boolean
   partnerName: string
   loading: boolean
   error: string | null
   sendLetter(message: string): Promise<{ ok: boolean; error?: string }>
+  sendHeld(id: string): Promise<{ ok: boolean; error?: string }>
   markRead(id: string): Promise<void>
   setArchived(id: string, archived: boolean): Promise<void>
   deleteForMe(id: string): Promise<void>
@@ -27,15 +30,17 @@ export function useLetters(): UseLetters {
 
   const [letters, setLetters] = useState<Letter[]>([])
   const [archived, setArchived_] = useState<Letter[]>([])
+  const [held, setHeld] = useState<Letter[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async (id: string) => {
-    const [conversation, archive] = await Promise.all([
+    const [conversation, archive, heldLetters] = await Promise.all([
       letterRepository.listConversation(id),
       letterRepository.listArchived(id),
+      letterRepository.listHeld(id),
     ])
-    // Both failures must surface. Swallowing the archive's would leave the
+    // All three failures must surface. Swallowing one would leave the
     // previous list on screen looking correct, and setArchived/deleteForMe
     // both call load(), so the staleness would recur after every action — a
     // wrong list the reader trusts is worse than a missing one they do not.
@@ -45,13 +50,19 @@ export function useLetters(): UseLetters {
     if (archive.error !== null) setError(archive.error)
     else setArchived_(archive.data)
 
-    if (conversation.error === null && archive.error === null) setError(null)
+    if (heldLetters.error !== null) setError(heldLetters.error)
+    else setHeld(heldLetters.data)
+
+    if (conversation.error === null && archive.error === null && heldLetters.error === null) {
+      setError(null)
+    }
   }, [])
 
   useEffect(() => {
     if (userId === null) {
       setLetters([])
       setArchived_([])
+      setHeld([])
       setLoading(authLoading)
       return
     }
@@ -77,7 +88,9 @@ export function useLetters(): UseLetters {
   const sendLetter = useCallback<UseLetters['sendLetter']>(
     async (message) => {
       if (userId === null) return { ok: false, error: 'You are not signed in.' }
-      if (partnerId === null) return { ok: false, error: 'You are not connected to anyone yet.' }
+      // An unbonded author writes a HELD letter — receiverId null — rather
+      // than being refused. The repository and the insert policy both enforce
+      // that this is only allowed with no bond, so there is no check here.
       const result = await letterRepository.send({
         senderId: userId,
         receiverId: partnerId,
@@ -88,6 +101,17 @@ export function useLetters(): UseLetters {
       return { ok: true }
     },
     [userId, partnerId, load],
+  )
+
+  const sendHeldFn = useCallback<UseLetters['sendHeld']>(
+    async (id) => {
+      if (userId === null) return { ok: false, error: 'You are not signed in.' }
+      const result = await letterRepository.sendHeld(id, userId)
+      if (result.error !== null) return { ok: false, error: result.error }
+      await load(userId)
+      return { ok: true }
+    },
+    [userId, load],
   )
 
   const markRead = useCallback<UseLetters['markRead']>(async (id) => {
@@ -145,10 +169,13 @@ export function useLetters(): UseLetters {
   return {
     letters,
     archived,
+    held,
+    hasBond: partnerId !== null,
     partnerName,
     loading: loading || authLoading,
     error,
     sendLetter,
+    sendHeld: sendHeldFn,
     markRead,
     setArchived: setArchivedFn,
     deleteForMe,
