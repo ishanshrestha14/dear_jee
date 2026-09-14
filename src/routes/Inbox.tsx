@@ -170,6 +170,16 @@ export default function Inbox() {
           </p>
         )}
 
+        {past.length > 0 && (
+          <p className="mt-8 font-ui text-sm text-ink-muted">
+            Letters from a bond that ended are in{' '}
+            <Link to="/chapters" className="underline underline-offset-4 hover:text-accent">
+              Past chapters
+            </Link>
+            .
+          </p>
+        )}
+
         {unsent}
 
         <AnimatePresence>
