@@ -10,6 +10,13 @@ interface LetterModalProps {
   authorName: string
   recipientName: string
   archived: boolean
+  /**
+   * A letter in a past chapter. Hides the archive toggle, because with
+   * listConversation scoped to the open bond an un-archived past letter would
+   * appear in NEITHER home nor archive — it would simply vanish. Share and
+   * Delete stay: both concern your own copy.
+   */
+  readOnly?: boolean
   trapActive: boolean
   onClose: () => void
   onArchive: () => void
@@ -30,6 +37,7 @@ export function LetterModal({
   authorName,
   recipientName,
   archived,
+  readOnly = false,
   trapActive,
   onClose,
   onArchive,
@@ -170,13 +178,15 @@ export function LetterModal({
               </>
             ) : (
               <>
-                <button
-                  type="button"
-                  onClick={onArchive}
-                  className="font-ui text-xs text-ink-muted underline underline-offset-4 transition-colors hover:text-accent"
-                >
-                  {archived ? 'Move back' : 'Archive'}
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    onClick={onArchive}
+                    className="font-ui text-xs text-ink-muted underline underline-offset-4 transition-colors hover:text-accent"
+                  >
+                    {archived ? 'Move back' : 'Archive'}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setConfirmingDelete(true)}

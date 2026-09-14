@@ -22,6 +22,8 @@ const AuthScreen = lazy(() => import('../routes/AuthScreen'))
 const SetupProfile = lazy(() => import('../routes/SetupProfile'))
 const JoinPartner = lazy(() => import('../routes/JoinPartner'))
 const Settings = lazy(() => import('../routes/Settings'))
+const Chapters = lazy(() => import('../routes/Chapters'))
+const Chapter = lazy(() => import('../routes/Chapter'))
 
 /**
  * Wraps every route that belongs to the signed-in app in the shared chrome.
@@ -117,6 +119,22 @@ export default function App() {
               element={
                 <RequireAuth>
                   <Settings />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/chapters"
+              element={
+                <RequireAuth>
+                  <Chapters />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/chapters/:bondId"
+              element={
+                <RequireAuth>
+                  <Chapter />
                 </RequireAuth>
               }
             />
