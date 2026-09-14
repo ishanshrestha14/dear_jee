@@ -9,10 +9,11 @@ interface LayoutProps {
 
 /** App shell: warm ground, a quiet header, and a centred content column. */
 export function Layout({ children }: LayoutProps) {
-  const { userId, profile, signOut } = useAuth()
+  const { userId, profile } = useAuth()
   const canWrite = profile?.partnerId != null
-  // Sign out is a silent no-op on the mock path (signOut returns immediately
-  // when the client is null), so only offer it when it can actually do something.
+  // Settings offers sign out; it's a silent no-op on the mock path (signOut
+  // returns immediately when the client is null), so only offer the link
+  // when it can actually do something.
   const canSignOut = isSupabaseConfigured() && userId !== null
 
   return (
@@ -32,13 +33,12 @@ export function Layout({ children }: LayoutProps) {
               </Link>
             )}
             {canSignOut && (
-              <button
-                type="button"
-                onClick={() => void signOut()}
+              <Link
+                to="/settings"
                 className="font-ui text-sm text-ink-muted transition-colors hover:text-accent"
               >
-                Sign out
-              </button>
+                You
+              </Link>
             )}
           </nav>
         )}

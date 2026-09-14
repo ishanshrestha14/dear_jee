@@ -21,6 +21,7 @@ const Archive = lazy(() => import('../routes/Archive'))
 const AuthScreen = lazy(() => import('../routes/AuthScreen'))
 const SetupProfile = lazy(() => import('../routes/SetupProfile'))
 const JoinPartner = lazy(() => import('../routes/JoinPartner'))
+const Settings = lazy(() => import('../routes/Settings'))
 
 /**
  * Wraps every route that belongs to the signed-in app in the shared chrome.
@@ -111,6 +112,7 @@ export default function App() {
                 </RequireAuth>
               }
             />
+            <Route path="/settings" element={<Settings />} />
           </Route>
         </Routes>
       </AuthProvider>
