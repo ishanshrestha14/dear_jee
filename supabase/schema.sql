@@ -649,3 +649,40 @@ drop trigger if exists letters_enforce_update on letters;
 create trigger letters_enforce_update
   before update on letters
   for each row execute function enforce_letter_update();
+
+-- bond_id is not client-writable — `grant insert (sender_id, receiver_id,
+-- message)` in policies.sql omits it precisely so nobody can file a letter
+-- into someone else's chapter. So the database derives it. A letter to a
+-- partner belongs to the open bond; a held letter belongs to none.
+--
+-- A BEFORE INSERT trigger assigning NEW.bond_id is NOT subject to column
+-- grants, which is what makes this work. Without this trigger every letter
+-- would insert with bond_id null and nothing would ever appear in a chapter.
+create or replace function set_letter_bond()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if new.receiver_id is null then
+    new.bond_id := null;
+    new.sent_at := null;
+  else
+    select id into new.bond_id from bonds
+     where ended_at is null
+       and ((lower_id = new.sender_id   and upper_id = new.receiver_id)
+         or (lower_id = new.receiver_id and upper_id = new.sender_id));
+    if new.bond_id is null then
+      raise exception 'NO_BOND';
+    end if;
+    new.sent_at := coalesce(new.sent_at, now());
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists letters_set_bond on letters;
+create trigger letters_set_bond
+  before insert on letters
+  for each row execute function set_letter_bond();

@@ -2,6 +2,8 @@ import { supabase } from './supabaseClient'
 import { generateSlug } from '../lib/slug'
 import { validateLetter } from '../lib/validation'
 import type {
+  Bond,
+  BondRepository,
   Letter,
   LetterRepository,
   Profile,
@@ -127,6 +129,19 @@ function profileErrorMessage(raw: string): string {
  * makes no such promise — an auth refresh, an aborted request or a network
  * failure can reject — so every call goes through here.
  */
+/** The bonds table, snake_case. Not the Bond DTO — that is resolved per caller. */
+interface BondRow {
+  id: string
+  lower_id: string | null
+  upper_id: string | null
+  lower_name: string | null
+  upper_name: string | null
+  started_at: string
+  ended_at: string | null
+  lower_seen_end_at: string | null
+  upper_seen_end_at: string | null
+}
+
 async function guard<T>(operation: () => Promise<Result<T>>): Promise<Result<T>> {
   try {
     return await operation()
@@ -146,21 +161,49 @@ function archivedBy(l: Letter, userId: string): boolean {
 export function createSupabaseRepositories(): {
   letters: LetterRepository
   profiles: ProfileRepository
+  bonds: BondRepository
 } {
   if (supabase === null) {
     throw new Error('createSupabaseRepositories called without configuration')
   }
   const db = supabase
 
+  /**
+   * The caller's open bond, or null. Two round trips rather than a join:
+   * PostgREST cannot express "letters whose bond is my open one" in a single
+   * filtered select without an embedded resource, and the embedded form is
+   * harder to read than the extra request is to pay for.
+   *
+   * No `or(lower_id.eq…,upper_id.eq…)` filter: bonds_select_member already
+   * restricts the rows to this user's, and the bonds_one_active_* partial
+   * unique indexes guarantee at most one open one. A client-side filter here
+   * would duplicate the policy and drift from it.
+   */
+  const openBond = async (): Promise<BondRow | null> => {
+    const { data, error } = await db
+      .from('bonds')
+      .select('*')
+      .is('ended_at', null)
+      .maybeSingle()
+    if (error) return null
+    return data as BondRow | null
+  }
+
   const letterRepository: LetterRepository = {
     async listConversation(userId) {
       return guard(async () => {
+        // Scoped to the OPEN bond: this is the current chapter, not every
+        // letter the user has ever exchanged. No open bond is a real,
+        // renderable state — an unbonded person's home is empty — not an error.
+        //
         // RLS already hides letters this user deleted, so there is no delete
         // filter here — unlike the mock, which has no policies to lean on.
+        const bond = await openBond()
+        if (bond === null) return ok([])
         const { data, error } = await db
           .from('letters')
           .select('*')
-          .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
+          .eq('bond_id', bond.id)
           .order('created_at', { ascending: false })
         if (error) return fail(letterErrorMessage(error.message))
         const rows = (data as LetterRow[]).map(toLetter)
@@ -170,10 +213,13 @@ export function createSupabaseRepositories(): {
 
     async listArchived(userId) {
       return guard(async () => {
+        // Archived WITHIN the current chapter, for the same reason as above.
+        const bond = await openBond()
+        if (bond === null) return ok([])
         const { data, error } = await db
           .from('letters')
           .select('*')
-          .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
+          .eq('bond_id', bond.id)
           .order('created_at', { ascending: false })
         if (error) return fail(letterErrorMessage(error.message))
         const rows = (data as LetterRow[]).map(toLetter)
@@ -241,6 +287,12 @@ export function createSupabaseRepositories(): {
 
     async send({ senderId, receiverId, message }: SendLetterInput) {
       return guard(async () => {
+        // bond_id is deliberately absent from this insert: `grant insert
+        // (sender_id, receiver_id, message)` forbids it, and the insert policy
+        // already proves receiver_id is the caller's partner. A client that
+        // could choose bond_id could file a letter into someone else's
+        // chapter. The set_letter_bond trigger derives it instead.
+        //
         // Validate before the round trip. The DB CHECK is the backstop, but
         // this is what produces the exact user-facing copy.
         const validation = validateLetter(message)
@@ -430,5 +482,67 @@ export function createSupabaseRepositories(): {
     },
   }
 
-  return { letters: letterRepository, profiles: profileRepository }
+  const bondRepository: BondRepository = {
+    async list(userId) {
+      return guard(async () => {
+        const { data, error } = await db
+          .from('bonds')
+          .select('*')
+          .order('started_at', { ascending: false })
+        if (error) return fail('Your chapters could not be loaded.')
+        const rows = data as BondRow[]
+
+        // One count query for every chapter rather than one per chapter.
+        const { data: letterData, error: letterError } = await db
+          .from('letters')
+          .select('bond_id')
+        if (letterError) return fail('Your chapters could not be loaded.')
+        const counts = new Map<string, number>()
+        for (const row of letterData as { bond_id: string | null }[]) {
+          if (row.bond_id === null) continue
+          counts.set(row.bond_id, (counts.get(row.bond_id) ?? 0) + 1)
+        }
+
+        const bonds: Bond[] = rows.map((row) => {
+          const iAmLower = row.lower_id === userId
+          const partnerId = iAmLower ? row.upper_id : row.lower_id
+          const frozen = iAmLower ? row.upper_name : row.lower_name
+          return {
+            id: row.id,
+            partnerId,
+            // Frozen wins for an ended bond. For the OPEN bond the frozen
+            // columns are null, and the caller resolves the live name through
+            // useAuth's partnerName — this DTO does not, because
+            // profiles_select_self_or_partner is the only thing that could
+            // answer and that is AuthProvider's job, not this method's.
+            partnerName: frozen ?? '',
+            startedAt: row.started_at,
+            endedAt: row.ended_at,
+            seenEndAt: iAmLower ? row.lower_seen_end_at : row.upper_seen_end_at,
+            letterCount: counts.get(row.id) ?? 0,
+          }
+        })
+        return ok(bonds)
+      })
+    },
+
+    async unlink(_userId) {
+      return guard(async () => {
+        const { data, error } = await db.rpc('unlink_partner')
+        if (error) return fail('That did not work. Please try again.')
+        if (data === null) return fail('You are not connected to anyone.')
+        return ok(toProfile(data as ProfileRow))
+      })
+    },
+
+    async acknowledgeEnd(_userId, bondId) {
+      return guard(async () => {
+        const { error } = await db.rpc('acknowledge_bond_end', { bond_id: bondId })
+        if (error) return fail('That did not work.')
+        return ok(undefined)
+      })
+    },
+  }
+
+  return { letters: letterRepository, profiles: profileRepository, bonds: bondRepository }
 }
