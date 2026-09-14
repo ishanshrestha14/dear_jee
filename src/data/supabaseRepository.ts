@@ -89,6 +89,7 @@ function linkErrorMessage(raw: string): string {
  * logged in dev; the user gets something they can act on.
  */
 function letterErrorMessage(raw: string): string {
+  if (raw.includes('NO_BOND')) return 'You are not connected to anyone yet.'
   if (raw.includes('NOT_YOUR_SIDE')) return 'That is not yours to change.'
   if (raw.includes('IMMUTABLE_COLUMN')) return 'A sent letter cannot be edited.'
   if (raw.includes('ONLY_RECEIVER_MAY_READ')) return 'Only the person it was written to can open it.'
@@ -553,7 +554,10 @@ export function createSupabaseRepositories(): {
     async unlink(_userId) {
       return guard(async () => {
         const { data, error } = await db.rpc('unlink_partner')
-        if (error) return fail('That did not work. Please try again.')
+        if (error) {
+          if (error.message.includes('NO_BOND')) return fail('You are not connected to anyone.')
+          return fail('That did not work. Please try again.')
+        }
         if (data === null) return fail('You are not connected to anyone.')
         return ok(toProfile(data as ProfileRow))
       })

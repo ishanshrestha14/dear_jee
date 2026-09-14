@@ -24,7 +24,7 @@ things that bite.
 | Command | Does |
 |---|---|
 | `npm run dev` | Dev server |
-| `npm test` | Vitest, 42 logic-level tests across 4 files |
+| `npm test` | Vitest, 60 logic-level tests across 4 files |
 | `npm run typecheck` | `tsc -b` — the real type gate |
 | `npm run build` | Typecheck plus production build |
 | `npm run lint` | oxlint |
@@ -39,13 +39,15 @@ exits 0. Use `npm run typecheck`.
 src/
   app/         App shell and routes
   auth/        AuthProvider, useAuth — session, profile, partner
-  components/  Layout, LetterCard, LetterModal, ComposeLetter, RequireAuth, InviteLink
-  routes/      Inbox, Compose, AuthScreen, SetupProfile, JoinPartner
+  components/  Layout, LetterCard, LetterModal, ComposeLetter, RequireAuth,
+               InviteLink, ShareModal, Toast
+  routes/      Inbox, Compose, AuthScreen, SetupProfile, JoinPartner,
+               Settings, Chapters, Chapter, Archive, PublicLetter
   design/      tokens.css, fonts, PaperTexture
   data/        types, mockRepository, supabaseRepository, contractTests
-  hooks/       useLetters
+  hooks/       useLetters, useBonds, usePublicLetter
   lib/         slug, validation, format
-supabase/      schema.sql, policies.sql, README.md
+supabase/      schema.sql, policies.sql, reset-test-data.sql, README.md
 docs/superpowers/
   specs/       Design spec and carry-over decisions
   plans/       Task-by-task implementation plans

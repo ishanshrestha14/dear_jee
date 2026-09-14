@@ -4,6 +4,7 @@ import { PaperTexture } from '../design/PaperTexture'
 import { useAuth } from '../auth/useAuth'
 import { useBonds } from '../hooks/useBonds'
 import { profileRepository } from '../data'
+import { isSupabaseConfigured } from '../data/supabaseClient'
 
 export default function Settings() {
   const { userId, profile, partnerName, signOut, refreshProfile } = useAuth()
@@ -133,15 +134,17 @@ export default function Settings() {
           </p>
         )}
 
-        <div className="mt-10 border-t border-paper-edge pt-6">
-          <button
-            type="button"
-            onClick={() => void signOut()}
-            className="font-ui text-sm text-ink-muted underline underline-offset-4 hover:text-accent"
-          >
-            Sign out
-          </button>
-        </div>
+        {isSupabaseConfigured() && (
+          <div className="mt-10 border-t border-paper-edge pt-6">
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              className="font-ui text-sm text-ink-muted underline underline-offset-4 hover:text-accent"
+            >
+              Sign out
+            </button>
+          </div>
+        )}
       </PaperTexture>
     </div>
   )

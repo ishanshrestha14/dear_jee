@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
-import { isSupabaseConfigured } from '../data/supabaseClient'
 
 interface LayoutProps {
   children: ReactNode
@@ -14,10 +13,11 @@ export function Layout({ children }: LayoutProps) {
   // sent, which the composer and the repository both handle; refusing here
   // would make the app's central act conditional on having a partner.
   const canWrite = userId !== null
-  // Settings offers sign out; it's a silent no-op on the mock path (signOut
-  // returns immediately when the client is null), so only offer the link
-  // when it can actually do something.
-  const canSignOut = isSupabaseConfigured() && userId !== null
+  // Settings holds name editing, bond status and "End this bond" as well as
+  // sign out, all of which work on both the mock and Supabase paths — so the
+  // link itself only needs a signed-in user. (Sign out alone is a no-op on
+  // the mock path; Settings.tsx gates just that button on isSupabaseConfigured.)
+  const canOpenSettings = userId !== null
 
   return (
     <div className="min-h-screen bg-paper-app">
@@ -25,7 +25,7 @@ export function Layout({ children }: LayoutProps) {
         <Link to="/" className="font-hand text-3xl text-ink-ui transition-colors hover:text-accent">
           Dear Jee
         </Link>
-        {(canWrite || canSignOut) && (
+        {(canWrite || canOpenSettings) && (
           <nav className="flex items-center gap-5">
             {canWrite && (
               <Link
@@ -35,7 +35,7 @@ export function Layout({ children }: LayoutProps) {
                 Write a letter
               </Link>
             )}
-            {canSignOut && (
+            {canOpenSettings && (
               <Link
                 to="/settings"
                 className="font-ui text-sm text-ink-muted transition-colors hover:text-accent"

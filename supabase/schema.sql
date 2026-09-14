@@ -78,11 +78,22 @@ create table if not exists bonds (
     check (lower_id is null or upper_id is null or lower_id <> upper_id)
 );
 
--- At most one OPEN bond per person, enforced by the database rather than by a
--- read-then-write check inside link_partners. The existing
--- `if me.partner_id is not null then raise ALREADY_LINKED` can in principle be
--- raced; a partial unique index cannot. Closed bonds are unconstrained, which
--- is what lets the same pair bond twice and read as two chapters.
+-- These are two SEPARATE partial unique indexes, one on lower_id and one on
+-- upper_id. Each enforces at most one open bond per person PER POSITIONAL
+-- ROLE, not at most one open bond per person overall — a person could
+-- legally be lower_id of one open bond and upper_id of another without
+-- violating either index. A true per-person constraint is not expressible
+-- as a plain unique index over two columns, which is presumably why it
+-- was not written that way.
+--
+-- The race the `if me.partner_id is not null then raise ALREADY_LINKED`
+-- check leaves open is actually closed by the `for update` row lock on
+-- profiles inside link_partners: it serialises concurrent redemptions, so
+-- whichever caller locks the row second sees partner_id already set. These
+-- indexes are a useful backstop against a direct write that bypasses
+-- link_partners, not the thing preventing two open bonds for the same
+-- person. Closed bonds are unconstrained, which is what lets the same pair
+-- bond twice and read as two chapters.
 create unique index if not exists bonds_one_active_lower
   on bonds(lower_id) where ended_at is null;
 create unique index if not exists bonds_one_active_upper
@@ -264,6 +275,15 @@ begin
 
   if me is null then
     raise exception 'PROFILE_NOT_FOUND';
+  end if;
+
+  -- Without this, the block below is skipped entirely when there is no
+  -- partner, but the unconditional update after it still fires — succeeding
+  -- and rotating the caller's invite code for no reason, silently killing
+  -- any invite link they had already shared. The mock already refuses this
+  -- case; this brings the database in line with it.
+  if me.partner_id is null then
+    raise exception 'NO_BOND';
   end if;
 
   if me.partner_id is not null then
