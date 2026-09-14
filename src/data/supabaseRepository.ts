@@ -169,24 +169,31 @@ export function createSupabaseRepositories(): {
   const db = supabase
 
   /**
-   * The caller's open bond, or null. Two round trips rather than a join:
-   * PostgREST cannot express "letters whose bond is my open one" in a single
-   * filtered select without an embedded resource, and the embedded form is
-   * harder to read than the extra request is to pay for.
+   * The caller's open bond. Two round trips rather than a join: PostgREST
+   * cannot express "letters whose bond is my open one" in a single filtered
+   * select without an embedded resource, and the embedded form is harder to
+   * read than the extra request is to pay for.
    *
    * No `or(lower_id.eq…,upper_id.eq…)` filter: bonds_select_member already
    * restricts the rows to this user's, and the bonds_one_active_* partial
    * unique indexes guarantee at most one open one. A client-side filter here
    * would duplicate the policy and drift from it.
+   *
+   * Returns a Result, not a bare nullable: `.maybeSingle()` already reports
+   * "no open bond" as `{ data: null, error: null }`, distinct from a genuine
+   * query failure. Collapsing both into one null (as this used to do) turned
+   * a network blip or an RLS regression into a false "you have no partner" —
+   * a returning, bonded user would see a successful empty inbox instead of
+   * an error. Callers must tell the two apart.
    */
-  const openBond = async (): Promise<BondRow | null> => {
+  const openBond = async (): Promise<Result<BondRow | null>> => {
     const { data, error } = await db
       .from('bonds')
       .select('*')
       .is('ended_at', null)
       .maybeSingle()
-    if (error) return null
-    return data as BondRow | null
+    if (error) return fail(letterErrorMessage(error.message))
+    return ok(data as BondRow | null)
   }
 
   const letterRepository: LetterRepository = {
@@ -194,16 +201,19 @@ export function createSupabaseRepositories(): {
       return guard(async () => {
         // Scoped to the OPEN bond: this is the current chapter, not every
         // letter the user has ever exchanged. No open bond is a real,
-        // renderable state — an unbonded person's home is empty — not an error.
+        // renderable state — an unbonded person's home is empty — not an
+        // error. A failed lookup is a different thing entirely and must
+        // surface as one, not silently resolve to the same empty inbox.
         //
         // RLS already hides letters this user deleted, so there is no delete
         // filter here — unlike the mock, which has no policies to lean on.
-        const bond = await openBond()
-        if (bond === null) return ok([])
+        const bondResult = await openBond()
+        if (bondResult.error !== null) return fail(bondResult.error)
+        if (bondResult.data === null) return ok([])
         const { data, error } = await db
           .from('letters')
           .select('*')
-          .eq('bond_id', bond.id)
+          .eq('bond_id', bondResult.data.id)
           .order('created_at', { ascending: false })
         if (error) return fail(letterErrorMessage(error.message))
         const rows = (data as LetterRow[]).map(toLetter)
@@ -214,12 +224,13 @@ export function createSupabaseRepositories(): {
     async listArchived(userId) {
       return guard(async () => {
         // Archived WITHIN the current chapter, for the same reason as above.
-        const bond = await openBond()
-        if (bond === null) return ok([])
+        const bondResult = await openBond()
+        if (bondResult.error !== null) return fail(bondResult.error)
+        if (bondResult.data === null) return ok([])
         const { data, error } = await db
           .from('letters')
           .select('*')
-          .eq('bond_id', bond.id)
+          .eq('bond_id', bondResult.data.id)
           .order('created_at', { ascending: false })
         if (error) return fail(letterErrorMessage(error.message))
         const rows = (data as LetterRow[]).map(toLetter)
@@ -503,19 +514,32 @@ export function createSupabaseRepositories(): {
           counts.set(row.bond_id, (counts.get(row.bond_id) ?? 0) + 1)
         }
 
+        // profiles_select_self_or_partner permits reading exactly this user's
+        // own profile and their CURRENT partner's — nobody else's — so an
+        // unfiltered select returns at most those two rows, which is exactly
+        // what the open bond needs to resolve its live name.
+        const { data: profileData, error: profileError } = await db
+          .from('profiles')
+          .select('id, full_name')
+        if (profileError) return fail('Your chapters could not be loaded.')
+        const liveNames = new Map<string, string>()
+        for (const row of profileData as { id: string; full_name: string }[]) {
+          liveNames.set(row.id, row.full_name)
+        }
+
         const bonds: Bond[] = rows.map((row) => {
           const iAmLower = row.lower_id === userId
           const partnerId = iAmLower ? row.upper_id : row.lower_id
           const frozen = iAmLower ? row.upper_name : row.lower_name
+          const live = partnerId === null ? undefined : liveNames.get(partnerId)
           return {
             id: row.id,
             partnerId,
-            // Frozen wins for an ended bond. For the OPEN bond the frozen
-            // columns are null, and the caller resolves the live name through
-            // useAuth's partnerName — this DTO does not, because
-            // profiles_select_self_or_partner is the only thing that could
-            // answer and that is AuthProvider's job, not this method's.
-            partnerName: frozen ?? '',
+            // Frozen name wins for an ended bond — that is WHY it was frozen,
+            // and the partner's profile may no longer be readable at all.
+            // For the OPEN bond the frozen columns are null, so the live name
+            // from the lookup above answers instead.
+            partnerName: frozen ?? live ?? '',
             startedAt: row.started_at,
             endedAt: row.ended_at,
             seenEndAt: iAmLower ? row.lower_seen_end_at : row.upper_seen_end_at,
