@@ -9,8 +9,11 @@ interface LayoutProps {
 
 /** App shell: warm ground, a quiet header, and a centred content column. */
 export function Layout({ children }: LayoutProps) {
-  const { userId, profile } = useAuth()
-  const canWrite = profile?.partnerId != null
+  const { userId } = useAuth()
+  // Everyone signed in may write. With no bond the letter is HELD rather than
+  // sent, which the composer and the repository both handle; refusing here
+  // would make the app's central act conditional on having a partner.
+  const canWrite = userId !== null
   // Settings offers sign out; it's a silent no-op on the mock path (signOut
   // returns immediately when the client is null), so only offer the link
   // when it can actually do something.
