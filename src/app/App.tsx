@@ -112,7 +112,14 @@ export default function App() {
                 </RequireAuth>
               }
             />
-            <Route path="/settings" element={<Settings />} />
+            <Route
+              path="/settings"
+              element={
+                <RequireAuth>
+                  <Settings />
+                </RequireAuth>
+              }
+            />
           </Route>
         </Routes>
       </AuthProvider>

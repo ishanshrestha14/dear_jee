@@ -7,7 +7,7 @@ import { profileRepository } from '../data'
 
 export default function Settings() {
   const { userId, profile, partnerName, signOut, refreshProfile } = useAuth()
-  const { current, loading, unlink } = useBonds()
+  const { current, loading, error: bondError, unlink } = useBonds()
   const navigate = useNavigate()
   const [name, setName] = useState(profile?.fullName ?? '')
   const [saving, setSaving] = useState(false)
@@ -74,6 +74,10 @@ export default function Settings() {
           <h2 className="font-ui text-xs tracking-wide text-ink-muted">Your bond</h2>
           {loading ? (
             <p className="mt-2 font-ui text-sm text-ink-muted">One moment…</p>
+          ) : bondError !== null ? (
+            <p role="alert" className="mt-2 font-ui text-sm text-accent">
+              {bondError}
+            </p>
           ) : current === null ? (
             <p className="mt-2 font-letter text-ink-letter">
               You are not connected to anyone.
@@ -100,7 +104,10 @@ export default function Settings() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setConfirming(false)}
+                      onClick={() => {
+                        setConfirming(false)
+                        setError(null)
+                      }}
                       className="font-ui text-sm text-ink-muted underline underline-offset-4 hover:text-accent"
                     >
                       Keep it
