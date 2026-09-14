@@ -36,7 +36,7 @@ export function LetterSheet({
 
   return (
     <div className="relative px-2 sm:px-6">
-      <p className="font-letter text-lg text-ink-letter" style={{ fontFamily: fontStack(bodyFont) }}>
+      <p className="text-lg text-ink-letter" style={{ fontFamily: fontStack(bodyFont) }}>
         Dear {salutation ?? recipientName},
       </p>
 
@@ -55,13 +55,36 @@ export function LetterSheet({
       </p>
 
       {/*
-        The fold. A letter this long would have been folded to fit an envelope,
-        and the crease is where it was. Built from the existing paper-edge
-        token plus an inset shadow — no new colours.
+        The folds. A letter would have been tri-folded to fit an envelope —
+        two creases, at roughly a third and two-thirds down the page, not one
+        at the midpoint. Positions are FIXED fractions of the sheet, not a
+        function of body length: content-relative placement is exactly the
+        defect a reviewer caught here — a two-line letter would crease almost
+        nothing, and a long one would crease mid-paragraph.
+
+        Each crease is a soft gradient band (fading in from nothing, out to
+        nothing again) rather than a 1px rule. A hairline laid over
+        leading-[1.85] prose has no way to know where a text line ends and
+        can land inside a glyph, reading as a stray strikethrough. A band
+        with no hard edge cannot do that — it reads as a valley in the paper
+        instead. Colour comes only from the existing paper-edge token and an
+        ink-derived shadow at low opacity; no new colour values.
       */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-1/2 h-px bg-paper-edge/70 shadow-[0_1px_2px_rgba(44,40,37,0.06)]"
+        className="pointer-events-none absolute inset-x-0 top-[33%] h-2 -translate-y-1/2"
+        style={{
+          background: 'linear-gradient(to bottom, transparent, var(--color-paper-edge), transparent)',
+          boxShadow: 'inset 0 1px 2px rgba(44, 40, 37, 0.08)',
+        }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-[66%] h-2 -translate-y-1/2"
+        style={{
+          background: 'linear-gradient(to bottom, transparent, var(--color-paper-edge), transparent)',
+          boxShadow: 'inset 0 1px 2px rgba(44, 40, 37, 0.08)',
+        }}
       />
 
       <div className="mt-10 text-right">
