@@ -254,6 +254,91 @@ letter is the most likely way a real page breaks at 375px. It reports; it
 fixes nothing. Nobody on this project can see a rendered page, and that
 verdict needs a phone.
 
+## Phase 6 — Bonds and chapters *(complete, migration pending)*
+
+A relationship became a row. `profiles.partner_id` used to be the whole model
+of a relationship: it could say who you are with and nothing else — not that
+a relationship ended, when it ran, or that two people had been together
+twice. A new `bonds` table records one row per relationship, open
+(`ended_at is null`) or closed, and `letters.bond_id` files each letter into
+one. `partner_id` survives as a cache of the open bond, written only by the
+two `security definer` functions that maintain both sides. Someone with no
+open bond can still write — the letter is held (`bond_id is null`) until they
+bond, at which point it joins that chapter.
+
+- Home is scoped to the open bond, not to "every letter I can see." This
+  closes a latent bug that predates this phase: `LetterModal`'s "Move back"
+  (un-archiving) would have lifted a letter originally written to a former
+  partner onto the current partner's home page, because archiving was the
+  only state the UI tracked.
+- Past chapters are read-only, and that is structural, not a UI convention.
+  `receiver_id` is what RLS reads to grant read access, so re-associating a
+  letter to a different chapter would itself be a permission grant, and
+  moving one would silently delete the other person's copy of a letter they
+  already received. There is no code path that changes which chapter a
+  delivered letter belongs to.
+- Held letters keep the date they were written, not the date they arrive.
+  `created_at` means written; `sent_at` means delivered. A letter can now sit
+  for weeks before a bond exists to receive it, and it reads as having been
+  written when it was.
+- `receiver_id` immutability — added in Phase 3 after a receiver could
+  re-point a letter into a stranger's inbox — had to be narrowed rather than
+  relaxed. A held letter's `receiver_id` legitimately goes from `null` to
+  someone's id exactly once, when it is sent into the newly-formed bond. The
+  trigger now permits that one transition and still blocks every other
+  client-side rewrite.
+- The insert column grants closed a gap that predates this phase and was
+  found while writing the new insert policy: the update path has been locked
+  down since Phase 3, but the insert path never was, so a client could set
+  `is_public` or `share_slug` at the moment a letter is created, not just
+  afterward.
+
+**Found by review:**
+- **A letter could escape its chapter through account deletion.**
+  `letters_receiver_id_fkey` is `on delete set null`, so when a recipient
+  deleted their account, their letters returned to `receiver_id = null` —
+  re-entering the same state as a genuinely held letter. Left alone, a sender
+  could then "send" a letter originally written to B into a later partner
+  C's bond, still carrying its original `created_at`. Fixed by also requiring
+  `sent_at is null` wherever the code distinguishes a held letter from a
+  delivered one: a letter that has never been sent has no `sent_at`, but one
+  that was delivered and then orphaned by deletion does, so the two cases no
+  longer look the same.
+- **The mock and the database disagreed twice** — the failure this project
+  keeps hitting. `listHeld` in the mock skipped the deleted-letter filter the
+  database applies through RLS, so a letter its own author had deleted kept
+  reappearing in development while staying gone in production. And
+  `Bond.partnerName` returned a live name from the mock but an empty string
+  from production for the current chapter, which would have shown the
+  partner's actual name in development and the literal word "Someone" in
+  production — the two environments telling a different story about the same
+  screen.
+- **Two failures were being presented to the user as ordinary states.** A
+  failed bond query rendered as an empty inbox, indistinguishable from
+  genuinely having no partner; a failed bond load on the settings screen
+  rendered as "You are not connected to anyone," which is a lie dressed as
+  a fact. Both now surface as errors instead of false negatives.
+- **Three controls were visible but inert**, the worst of which was a "Delete
+  this letter permanently?" confirmation on a past-chapter letter that did
+  nothing when confirmed — worse than no button at all, because the
+  confirmation implies the deletion happened. All three are now wired up.
+- **`/settings` shipped without its auth guard** — the only signed-in route
+  missing one. Beyond the obvious access problem, it also skipped the
+  redirect that stops the app rendering "Dear ," to someone who has never
+  named themselves, which every other signed-in route enforces.
+- **A user could be permanently cut off from their own past letters.** With
+  an empty current inbox and the ended-bond notice dismissed, nothing on the
+  screen linked to `/chapters` — the only route into a correspondence that
+  had already ended.
+
+**Migration status.** `supabase/schema.sql` and `supabase/policies.sql` carry
+the `bonds` table, the chapter-scoping changes, and the narrowed
+`receiver_id` trigger, and are idempotent by inspection. Applying them to the
+live project, and the one-shot `supabase/reset-test-data.sql` that follows,
+is the owner's step and had not been run as of this record. Until it is, the
+app continues to run on the mock in development and the pre-Phase-6 schema in
+production.
+
 ---
 
 ## Open decisions and known gaps
@@ -274,6 +359,10 @@ delete set null`, and a `before delete` trigger on `profiles` freezes the
 departing person's name and archives the survivor's side so the correspondence
 survives and moves quietly away.
 
-**Cosmetic:** `Inbox.tsx` still hardcodes `receiverName="you"`, so the modal
-reads "Dear you,". `.env.example` and `supabase/README.md` name the Supabase
+**Resolved in Phase 6:** `Inbox.tsx` used to hardcode `receiverName="you"`
+regardless of who actually received the letter. `recipientOf` now resolves
+the real name — the signed-in profile's name when you are the receiver, the
+letter's frozen `receiverName` or the current partner's name otherwise.
+
+**Cosmetic:** `.env.example` and `supabase/README.md` name the Supabase
 dashboard path slightly differently.
