@@ -60,7 +60,7 @@ export function LetterSheet({
           The date as a postmark rather than a caption: a ring of paper-edge
           around it, set small and wide. Still the same formatted date string.
         */}
-        <p className="mt-3 inline-block rounded-full border border-paper-edge px-3 py-1 font-ui text-[11px] uppercase tracking-[0.18em] text-ink-muted">
+        <p className="mt-3 inline-block rounded-full border border-paper-edge px-3 py-1 font-ui text-[11px] font-semibold uppercase tracking-[0.13em] text-ink-muted">
           {formatLetterTimestamp(createdAt)}
         </p>
       </div>
