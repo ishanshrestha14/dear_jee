@@ -1,9 +1,9 @@
 import { useNavigate } from 'react-router-dom'
 import { ComposeLetter } from '../components/ComposeLetter'
-import { useLetters } from '../hooks/useLetters'
+import { useLettersContext } from '../hooks/LettersProvider'
 
 export default function Compose() {
-  const { partnerName, loading, sendLetter } = useLetters()
+  const { partnerName, loading, sendLetter } = useLettersContext()
   const navigate = useNavigate()
 
   return (

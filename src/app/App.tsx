@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { BrowserRouter, Outlet, Route, Routes } from 'react-router-dom'
 import { MotionConfig } from 'framer-motion'
 import { AuthProvider } from '../auth/AuthProvider'
+import { LettersProvider } from '../hooks/LettersProvider'
 import { RequireAuth } from '../components/RequireAuth'
 import { Layout } from '../components/Layout'
 import NotFound from '../routes/NotFound'
@@ -36,13 +37,15 @@ const Chapter = lazy(() => import('../routes/Chapter'))
 function AppChrome() {
   return (
     <MotionConfig reducedMotion="user">
-      <Layout>
-        <Suspense
-          fallback={<p className="py-20 text-center font-ui text-sm text-ink-muted">One moment…</p>}
-        >
-          <Outlet />
-        </Suspense>
-      </Layout>
+      <LettersProvider>
+        <Layout>
+          <Suspense
+            fallback={<p className="py-20 text-center font-ui text-sm text-ink-muted">One moment…</p>}
+          >
+            <Outlet />
+          </Suspense>
+        </Layout>
+      </LettersProvider>
     </MotionConfig>
   )
 }

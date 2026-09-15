@@ -5,12 +5,13 @@ import { LetterCard } from '../components/LetterCard'
 import { LetterModal } from '../components/LetterModal'
 import { ShareModal } from '../components/ShareModal'
 import { Toast } from '../components/Toast'
-import { useLetters } from '../hooks/useLetters'
+import { useLettersContext } from '../hooks/LettersProvider'
 import { useAuth } from '../auth/useAuth'
 import type { Letter } from '../data/types'
 
 export default function Archive() {
-  const { archived, partnerName, loading, error, setArchived, deleteForMe, setShared } = useLetters()
+  const { archived, partnerName, loading, error, setArchived, deleteForMe, setShared } =
+    useLettersContext()
   const { userId, profile } = useAuth()
   const [openId, setOpenId] = useState<string | null>(null)
   const [sharingId, setSharingId] = useState<string | null>(null)

@@ -5,7 +5,7 @@ import { LetterCard } from '../components/LetterCard'
 import { LetterModal } from '../components/LetterModal'
 import { ShareModal } from '../components/ShareModal'
 import { Toast } from '../components/Toast'
-import { useLetters } from '../hooks/useLetters'
+import { useLettersContext } from '../hooks/LettersProvider'
 import { useBonds } from '../hooks/useBonds'
 import { useAuth } from '../auth/useAuth'
 import { InviteLink } from '../components/InviteLink'
@@ -26,7 +26,7 @@ export default function Inbox() {
     deleteForMe,
     setShared,
     sendHeld,
-  } = useLetters()
+  } = useLettersContext()
   const { userId, profile } = useAuth()
   const { past, acknowledgeEnd } = useBonds()
   // Only a bond whose ending this person has not yet seen. seenEndAt is

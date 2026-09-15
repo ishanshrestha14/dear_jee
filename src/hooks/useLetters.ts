@@ -5,7 +5,7 @@ import { usePoll } from './usePoll'
 import type { Letter } from '../data/types'
 import type { BodyFont } from '../lib/validation'
 
-interface UseLetters {
+export interface UseLetters {
   letters: Letter[]
   archived: Letter[]
   held: Letter[]
