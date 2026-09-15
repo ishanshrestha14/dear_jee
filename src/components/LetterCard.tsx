@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion'
 import { PaperTexture } from '../design/PaperTexture'
+import { fontStack } from '../design/letterFonts'
 import { formatLetterDate, snippet } from '../lib/format'
 import type { Letter } from '../data/types'
 
@@ -36,7 +37,10 @@ export function LetterCard({ letter, authorName, unread, onOpen }: LetterCardPro
             />
           )}
         </div>
-        <p className="mt-3 font-letter text-[15px] leading-relaxed text-ink-letter">
+        <p
+          className="mt-3 text-[15px] leading-relaxed text-ink-letter"
+          style={{ fontFamily: fontStack(letter.bodyFont) }}
+        >
           {snippet(letter.message, 140)}
         </p>
         <p className="mt-4 font-ui text-xs tracking-wide text-ink-muted">
