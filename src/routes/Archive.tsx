@@ -12,9 +12,15 @@ import type { Letter } from '../data/types'
 export default function Archive() {
   const { archived, partnerName, loading, error, setArchived, deleteForMe, setShared } = useLetters()
   const { userId, profile } = useAuth()
-  const [open, setOpen] = useState<Letter | null>(null)
+  const [openId, setOpenId] = useState<string | null>(null)
   const [sharingId, setSharingId] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+
+  // Derived, not captured — the same reason `sharing` is derived. Polling
+  // replaces this list while a letter is open, and a captured Letter object
+  // would leave the modal rendering a snapshot that no longer matches the
+  // store.
+  const open = openId === null ? null : (archived.find((l) => l.id === openId) ?? null)
 
   // Derived, not a snapshot. Toggling sharing reloads the list, and the modal
   // must re-render with the new isPublic and the newly minted slug — a
@@ -22,14 +28,11 @@ export default function Archive() {
   // seconds after the user turned sharing on.
   const sharing = sharingId === null ? null : (archived.find((l) => l.id === sharingId) ?? null)
 
-  const closeLetter = useCallback(() => setOpen(null), [])
+  const closeLetter = useCallback(() => setOpenId(null), [])
   const closeShare = useCallback(() => setSharingId(null), [])
   const openShare = useCallback(() => {
-    setOpen((current) => {
-      if (current !== null) setSharingId(current.id)
-      return current
-    })
-  }, [])
+    if (open !== null) setSharingId(open.id)
+  }, [open])
 
   const authorOf = (letter: Letter): string =>
     letter.senderId === userId ? (profile?.fullName ?? 'You') : (letter.senderName ?? partnerName)
@@ -78,7 +81,7 @@ export default function Archive() {
             letter={letter}
             authorName={authorOf(letter)}
             unread={letter.receiverId === userId && !letter.isRead}
-            onOpen={setOpen}
+            onOpen={(letter) => setOpenId(letter.id)}
           />
         ))}
       </div>
@@ -95,11 +98,11 @@ export default function Archive() {
             onClose={closeLetter}
             onArchive={() => {
               void setArchived(open.id, false)
-              setOpen(null)
+              setOpenId(null)
             }}
             onDelete={() => {
               void deleteForMe(open.id)
-              setOpen(null)
+              setOpenId(null)
             }}
             onShare={openShare}
           />

@@ -107,4 +107,9 @@ grant update (is_read, is_public, share_slug,
 -- insert time. This closes that, and is REQUIRED for bonds: a client that
 -- could set bond_id itself would file a letter into someone else's chapter.
 revoke insert on letters from authenticated;
-grant insert (sender_id, receiver_id, message) on letters to authenticated;
+-- salutation and body_font join the insert grant: the writer chooses both when
+-- they write, and enforce_letter_update makes them immutable afterwards. The
+-- grant is what allows setting them at all; the trigger is what stops them
+-- changing later.
+grant insert (sender_id, receiver_id, message, salutation, body_font)
+  on letters to authenticated;

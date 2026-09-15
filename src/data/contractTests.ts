@@ -41,6 +41,8 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
           senderId: fx.userId,
           receiverId: fx.partnerId,
           message: 'Something I wrote.',
+          salutation: null,
+          bodyFont: null,
         })
         const { data } = await fx.letters.listConversation(fx.userId)
         expect(data!.some((l) => l.id === sent.data!.id)).toBe(true)
@@ -67,6 +69,8 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
           senderId: fx.userId,
           receiverId: fx.partnerId,
           message: 'Good morning, you.',
+          salutation: null,
+          bodyFont: null,
         })
         expect(sent.error).toBeNull()
 
@@ -79,6 +83,8 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
           senderId: fx.userId,
           receiverId: fx.partnerId,
           message: 'Hello.',
+          salutation: null,
+          bodyFont: null,
         })
         expect(data!.isRead).toBe(false)
         expect(data!.shareSlug).toBeNull()
@@ -91,6 +97,8 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
           senderId: fx.userId,
           receiverId: fx.partnerId,
           message: '   ',
+          salutation: null,
+          bodyFont: null,
         })
         expect(result.data).toBeNull()
         expect(result.error).toBe('A letter needs a few words.')
@@ -137,6 +145,8 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
           senderId: fx.userId,
           receiverId: fx.partnerId,
           message: 'Still yours.',
+          salutation: null,
+          bodyFont: null,
         })
         await fx.letters.setArchived(sent.data!.id, fx.userId, true)
         const { data: theirs } = await fx.letters.listConversation(fx.partnerId)
@@ -150,6 +160,8 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
           senderId: fx.userId,
           receiverId: fx.partnerId,
           message: 'Gone from my side.',
+          salutation: null,
+          bodyFont: null,
         })
         await fx.letters.deleteForMe(sent.data!.id, fx.userId)
 
@@ -165,6 +177,8 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
           senderId: fx.userId,
           receiverId: fx.partnerId,
           message: 'Not in the archive either.',
+          salutation: null,
+          bodyFont: null,
         })
         // Archive FIRST. Deleting a letter that was never archived and then
         // asserting it is absent from the archive is a tautology — it would
@@ -231,9 +245,11 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
         const shared = await fx.letters.setShared(inbox![0].id, true)
         const { data } = await fx.letters.getBySlug(shared.data!.shareSlug!)
         expect(Object.keys(data!).sort()).toEqual([
+          'bodyFont',
           'createdAt',
           'message',
           'receiverName',
+          'salutation',
           'senderName',
         ])
       })
@@ -278,6 +294,8 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
           senderId: fx.userId,
           receiverId: fx.partnerId,
           message: 'Shared, then withdrawn.',
+          salutation: null,
+          bodyFont: null,
         })
         const shared = await fx.letters.setShared(sent.data!.id, true)
         const slug = shared.data!.shareSlug!
@@ -452,6 +470,8 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
           senderId: solo.userId,
           receiverId: null,
           message: 'Dear whoever you turn out to be,',
+          salutation: null,
+          bodyFont: null,
         })
         expect(written.error).toBe(null)
         expect(written.data!.receiverId).toBe(null)
@@ -471,6 +491,8 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
           senderId: solo.userId,
           receiverId: null,
           message: 'Not sent yet.',
+          salutation: null,
+          bodyFont: null,
         })
         const current = await solo.letters.listConversation(solo.userId)
         expect(current.data).toEqual([])
@@ -483,6 +505,8 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
           senderId: fx.userId,
           receiverId: null,
           message: 'Should be refused.',
+          salutation: null,
+          bodyFont: null,
         })
         expect(result.error).not.toBe(null)
       })
@@ -494,6 +518,8 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
             senderId: solo.userId,
             receiverId: null,
             message: 'Written long before it was sent.',
+            salutation: null,
+            bodyFont: null,
           })
         ).data!
 
@@ -515,6 +541,8 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
             senderId: solo.userId,
             receiverId: null,
             message: 'On its way at last.',
+            salutation: null,
+            bodyFont: null,
           })
         ).data!
         const theirs = (await solo.profiles.getById(solo.partnerId)).data!
@@ -534,6 +562,8 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
             senderId: solo.userId,
             receiverId: null,
             message: 'Only once.',
+            salutation: null,
+            bodyFont: null,
           })
         ).data!
         const theirs = (await solo.profiles.getById(solo.partnerId)).data!
@@ -550,6 +580,8 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
             senderId: solo.userId,
             receiverId: null,
             message: 'Nobody to send it to.',
+            salutation: null,
+            bodyFont: null,
           })
         ).data!
         const result = await solo.letters.sendHeld(written.id, solo.userId)
@@ -563,6 +595,8 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
             senderId: solo.userId,
             receiverId: null,
             message: 'Mine alone.',
+            salutation: null,
+            bodyFont: null,
           })
         ).data!
         const theirs = (await solo.profiles.getById(solo.partnerId)).data!
@@ -576,6 +610,85 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
         const stillHeld = held.data!.find((l) => l.id === written.id)!
         expect(stillHeld.receiverId).toBe(null)
         expect(stillHeld.sentAt).toBe(null)
+      })
+    })
+
+    describe('salutation and face', () => {
+      it('stores and returns both', async () => {
+        const sent = await fx.letters.send({
+          senderId: fx.userId,
+          receiverId: fx.partnerId,
+          message: 'Written in a particular hand.',
+          salutation: 'my love',
+          bodyFont: 'courier-prime',
+        })
+        expect(sent.error).toBe(null)
+        expect(sent.data!.salutation).toBe('my love')
+        expect(sent.data!.bodyFont).toBe('courier-prime')
+      })
+
+      it('accepts null for both, which is how older letters read', async () => {
+        const sent = await fx.letters.send({
+          senderId: fx.userId,
+          receiverId: fx.partnerId,
+          message: 'Plain, like the ones before.',
+          salutation: null,
+          bodyFont: null,
+        })
+        expect(sent.error).toBe(null)
+        expect(sent.data!.salutation).toBe(null)
+        expect(sent.data!.bodyFont).toBe(null)
+      })
+
+      it('leaves the seeded letters untouched', async () => {
+        const existing = await fx.letters.listConversation(fx.userId)
+        expect(existing.error).toBe(null)
+        for (const letter of existing.data!) {
+          expect(letter.salutation).toBe(null)
+          expect(letter.bodyFont).toBe(null)
+        }
+      })
+
+      it('refuses a font outside the published set', async () => {
+        const sent = await fx.letters.send({
+          senderId: fx.userId,
+          receiverId: fx.partnerId,
+          message: 'Should not send.',
+          salutation: null,
+          bodyFont: 'comic-sans' as never,
+        })
+        expect(sent.error).not.toBe(null)
+      })
+
+      it('refuses a salutation longer than the column allows', async () => {
+        const sent = await fx.letters.send({
+          senderId: fx.userId,
+          receiverId: fx.partnerId,
+          message: 'Should not send.',
+          salutation: 'a'.repeat(61),
+          bodyFont: null,
+        })
+        expect(sent.error).not.toBe(null)
+      })
+
+      it('a shared letter carries both to the public view', async () => {
+        const sent = (
+          await fx.letters.send({
+            senderId: fx.userId,
+            receiverId: fx.partnerId,
+            message: 'For anyone with the link.',
+            salutation: 'dearest',
+            bodyFont: 'dancing-script',
+          })
+        ).data!
+        await fx.letters.setShared(sent.id, true)
+        const reread = (await fx.letters.listConversation(fx.userId)).data!.find(
+          (l) => l.id === sent.id,
+        )!
+        const view = await fx.letters.getBySlug(reread.shareSlug!)
+        expect(view.error).toBe(null)
+        expect(view.data!.salutation).toBe('dearest')
+        expect(view.data!.bodyFont).toBe('dancing-script')
       })
     })
   })

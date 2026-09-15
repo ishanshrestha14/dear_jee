@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Share2, X } from 'lucide-react'
 import { PaperTexture } from '../design/PaperTexture'
-import { formatLetterDate } from '../lib/format'
+import { LetterSheet } from './LetterSheet'
 import type { Letter } from '../data/types'
 
 interface LetterModalProps {
@@ -128,7 +128,7 @@ export function LetterModal({
             type="button"
             onClick={onClose}
             aria-label="Close letter"
-            className="absolute right-4 top-4 rounded-full p-2 text-ink-muted transition-colors hover:text-accent"
+            className="absolute right-4 top-4 z-10 rounded-full p-3 text-ink-muted transition-colors hover:text-accent"
           >
             <X size={18} />
           </button>
@@ -137,23 +137,19 @@ export function LetterModal({
             type="button"
             onClick={onShare}
             aria-label="Share this letter"
-            className="absolute right-14 top-4 rounded-full p-2 text-ink-muted transition-colors hover:text-accent"
+            className="absolute right-16 top-4 z-10 rounded-full p-3 text-ink-muted transition-colors hover:text-accent"
           >
             <Share2 size={18} />
           </button>
 
-          <p className="font-letter text-lg text-ink-letter">Dear {recipientName},</p>
-
-          <p className="mt-6 whitespace-pre-wrap font-letter text-[17px] leading-[1.85] text-ink-letter">
-            {letter.message}
-          </p>
-
-          <div className="mt-10 text-right">
-            <p className="font-hand text-3xl text-ink-ui">With love, {authorName}</p>
-            <p className="mt-2 font-ui text-xs tracking-wide text-ink-muted">
-              {formatLetterDate(letter.createdAt)}
-            </p>
-          </div>
+          <LetterSheet
+            salutation={letter.salutation}
+            body={letter.message}
+            bodyFont={letter.bodyFont}
+            authorName={authorName}
+            recipientName={recipientName}
+            createdAt={letter.createdAt}
+          />
 
           <div className="mt-10 flex items-center justify-end gap-4 border-t border-paper-edge pt-5">
             {confirmingDelete ? (
@@ -164,14 +160,14 @@ export function LetterModal({
                 <button
                   type="button"
                   onClick={onDelete}
-                  className="font-ui text-xs text-accent underline underline-offset-4"
+                  className="px-3 py-3.5 font-ui text-xs text-accent underline underline-offset-4"
                 >
                   Delete
                 </button>
                 <button
                   type="button"
                   onClick={() => setConfirmingDelete(false)}
-                  className="font-ui text-xs text-ink-muted underline underline-offset-4"
+                  className="px-3 py-3.5 font-ui text-xs text-ink-muted underline underline-offset-4"
                 >
                   Cancel
                 </button>
@@ -182,7 +178,7 @@ export function LetterModal({
                   <button
                     type="button"
                     onClick={onArchive}
-                    className="font-ui text-xs text-ink-muted underline underline-offset-4 transition-colors hover:text-accent"
+                    className="px-3 py-3.5 font-ui text-xs text-ink-muted underline underline-offset-4 transition-colors hover:text-accent"
                   >
                     {archived ? 'Move back' : 'Archive'}
                   </button>
@@ -190,7 +186,7 @@ export function LetterModal({
                 <button
                   type="button"
                   onClick={() => setConfirmingDelete(true)}
-                  className="font-ui text-xs text-ink-muted underline underline-offset-4 transition-colors hover:text-accent"
+                  className="px-3 py-3.5 font-ui text-xs text-ink-muted underline underline-offset-4 transition-colors hover:text-accent"
                 >
                   Delete
                 </button>

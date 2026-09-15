@@ -10,8 +10,9 @@ export default function Compose() {
     <ComposeLetter
       partnerName={partnerName}
       disabled={loading}
-      onSend={async (message) => {
-        const result = await sendLetter(message)
+      onCancel={() => navigate('/')}
+      onSend={async (message, salutation, bodyFont) => {
+        const result = await sendLetter(message, salutation, bodyFont)
         if (result.ok) navigate('/')
         return result
       }}

@@ -17,11 +17,17 @@ export default function Chapter() {
   const [letters, setLetters] = useState<Letter[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [open, setOpen] = useState<Letter | null>(null)
+  const [openId, setOpenId] = useState<string | null>(null)
   const [sharingId, setSharingId] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
   const bond = past.find((b) => b.id === bondId) ?? null
+
+  // Derived, not captured — the same reason `sharing` is derived. Polling
+  // replaces this list while a letter is open, and a captured Letter object
+  // would leave the modal rendering a snapshot that no longer matches the
+  // store.
+  const open = openId === null ? null : (letters.find((l) => l.id === openId) ?? null)
 
   // Derived, not a snapshot: toggling sharing reloads the list below, and a
   // captured Letter would still say "Only you two" and show no link, seconds
@@ -51,14 +57,11 @@ export default function Chapter() {
     }
   }, [userId, bondId, load])
 
-  const closeLetter = useCallback(() => setOpen(null), [])
+  const closeLetter = useCallback(() => setOpenId(null), [])
   const closeShare = useCallback(() => setSharingId(null), [])
   const openShare = useCallback(() => {
-    setOpen((current) => {
-      if (current !== null) setSharingId(current.id)
-      return current
-    })
-  }, [])
+    if (open !== null) setSharingId(open.id)
+  }, [open])
 
   // The frozen name on the letter answers first: after unbonding, nothing can
   // resolve the other person's profile, so a live lookup would render blank.
@@ -106,7 +109,7 @@ export default function Chapter() {
               letter={letter}
               authorName={authorOf(letter)}
               unread={false}
-              onOpen={setOpen}
+              onOpen={(letter) => setOpenId(letter.id)}
             />
           ))}
         </div>
@@ -132,7 +135,7 @@ export default function Chapter() {
             onArchive={() => {}}
             onDelete={() => {
               const letterId = open.id
-              setOpen(null)
+              setOpenId(null)
               void (async () => {
                 if (userId === null) return
                 const result = await letterRepository.deleteForMe(letterId, userId)
