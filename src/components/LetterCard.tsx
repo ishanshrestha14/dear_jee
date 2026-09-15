@@ -36,7 +36,7 @@ export function LetterCard({ letter, authorName, unread, onOpen }: LetterCardPro
             />
           )}
         </div>
-        <p className="mt-3 font-letter text-[15px] leading-relaxed text-ink-letter">
+        <p className="mt-3 line-clamp-2 min-h-[3.25em] font-letter text-[15px] leading-relaxed text-ink-letter">
           {snippet(letter.message, 140)}
         </p>
         <p className="mt-4 font-ui text-xs tracking-wide text-ink-muted">
