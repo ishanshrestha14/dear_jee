@@ -149,11 +149,11 @@ export function LetterModal({
             type="button"
             onClick={onClose}
             aria-label="Close letter"
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.95 }}
-            className="absolute right-6 top-0 z-10 rounded-full p-1.5 text-ink-muted transition-colors hover:text-accent sm:right-10"
+            whileHover={{ scale: 1.08 }}
+            whileTap={{ scale: 0.92 }}
+            className="absolute right-6 top-0 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-paper-edge/50 text-ink-muted ring-1 ring-paper-edge transition-colors hover:bg-accent-soft/50 hover:text-accent sm:right-10"
           >
-            <X size={18} />
+            <X size={16} strokeWidth={2.25} />
           </motion.button>
 
           <LetterSheet

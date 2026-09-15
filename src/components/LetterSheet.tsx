@@ -41,35 +41,6 @@ export function LetterSheet({
       </p>
 
       {/*
-        The first fold. A letter would have been tri-folded to fit an
-        envelope, but a crease positioned by a FRACTION of the sheet's
-        height is still content-relative: a short letter's sheet is barely
-        taller than its own text, so a percentage-based crease landed inside
-        the salutation or signature line instead of the whitespace around
-        them, and inflating the sheet with a fixed min-height to give it
-        somewhere to fall just made a short letter's modal mostly blank
-        space. Placing the crease as a real element between the blocks, sized
-        by its own margin rather than the sheet's total height, fixes both:
-        it always falls in the gap that is already there, and it never asks
-        for a page taller than the letter needs.
-
-        A soft gradient band (fading in from nothing, out to nothing again)
-        rather than a 1px rule, because a hairline laid over leading-[1.85]
-        prose has no way to know where a text line ends and can land inside a
-        glyph, reading as a stray strikethrough. Colour comes only from the
-        existing paper-edge token and an ink-derived shadow at low opacity;
-        no new colour values.
-      */}
-      <div
-        aria-hidden
-        className="my-6 h-2 w-full"
-        style={{
-          background: 'linear-gradient(to bottom, transparent, var(--color-paper-edge), transparent)',
-          boxShadow: 'inset 0 1px 2px rgba(44, 40, 37, 0.08)',
-        }}
-      />
-
-      {/*
         break-words is load-bearing, not cosmetic: whitespace-pre-wrap breaks
         at word boundaries only, so a pasted URL — one unbroken token longer
         than the column — would push the sheet past a 375px viewport. Named in
@@ -77,23 +48,13 @@ export function LetterSheet({
         breaks the page.
       */}
       <p
-        className="whitespace-pre-wrap break-words text-[17px] leading-[1.85] text-ink-letter"
+        className="mt-5 whitespace-pre-wrap break-words text-[17px] leading-[1.85] text-ink-letter"
         style={{ fontFamily: fontStack(bodyFont) }}
       >
         {body}
       </p>
 
-      {/* The second fold, same reasoning as the first. */}
-      <div
-        aria-hidden
-        className="my-8 h-2 w-full"
-        style={{
-          background: 'linear-gradient(to bottom, transparent, var(--color-paper-edge), transparent)',
-          boxShadow: 'inset 0 1px 2px rgba(44, 40, 37, 0.08)',
-        }}
-      />
-
-      <div className="text-right">
+      <div className="mt-8 text-right">
         <p className="font-hand text-3xl text-ink-ui">With love, {authorName}</p>
         {/*
           The date as a postmark rather than a caption: a ring of paper-edge
