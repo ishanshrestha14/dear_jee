@@ -113,7 +113,16 @@ export function LetterModal({
       aria-modal="true"
       aria-label={`Letter from ${authorName}`}
     >
-      <div className="fixed inset-0 bg-ink-ui/25 backdrop-blur-[2px]" aria-hidden />
+      {/*
+        Forced onto its own compositing layer (translateZ) — otherwise Chrome
+        drops the backdrop-filter once the panel's layoutId transform
+        animation settles, so the blur is visible mid-open and then vanishes.
+      */}
+      <div
+        className="fixed inset-0 bg-ink-ui/25 backdrop-blur-[2px]"
+        style={{ transform: 'translateZ(0)' }}
+        aria-hidden
+      />
 
       <motion.div
         ref={panelRef}
