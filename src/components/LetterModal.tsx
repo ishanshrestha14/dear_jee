@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Share2, X } from 'lucide-react'
+import { Archive, ArchiveRestore, Share2, Trash2, X } from 'lucide-react'
 import { PaperTexture } from '../design/PaperTexture'
-import { formatLetterDate } from '../lib/format'
+import { formatLetterTimestamp } from '../lib/format'
 import type { Letter } from '../data/types'
 
 interface LetterModalProps {
@@ -151,7 +151,7 @@ export function LetterModal({
           <div className="mt-10 text-right">
             <p className="font-hand text-3xl text-ink-ui">With love, {authorName}</p>
             <p className="mt-2 font-ui text-xs tracking-wide text-ink-muted">
-              {formatLetterDate(letter.createdAt)}
+              {formatLetterTimestamp(letter.createdAt)}
             </p>
           </div>
 
@@ -179,21 +179,27 @@ export function LetterModal({
             ) : (
               <>
                 {!readOnly && (
-                  <button
+                  <motion.button
                     type="button"
                     onClick={onArchive}
-                    className="font-ui text-xs text-ink-muted underline underline-offset-4 transition-colors hover:text-accent"
+                    aria-label={archived ? 'Move back to inbox' : 'Archive this letter'}
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="rounded-full p-1.5 text-ink-muted transition-colors hover:text-accent"
                   >
-                    {archived ? 'Move back' : 'Archive'}
-                  </button>
+                    {archived ? <ArchiveRestore size={18} /> : <Archive size={18} />}
+                  </motion.button>
                 )}
-                <button
+                <motion.button
                   type="button"
                   onClick={() => setConfirmingDelete(true)}
-                  className="font-ui text-xs text-ink-muted underline underline-offset-4 transition-colors hover:text-accent"
+                  aria-label="Delete this letter"
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="rounded-full p-1.5 text-ink-muted transition-colors hover:text-accent"
                 >
-                  Delete
-                </button>
+                  <Trash2 size={18} />
+                </motion.button>
               </>
             )}
           </div>

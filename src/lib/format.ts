@@ -1,11 +1,27 @@
+// Both people read letters against Nepal time, not UTC or their own device's
+// timezone — that's the shared clock the relationship runs on.
+const LETTER_TIME_ZONE = 'Asia/Kathmandu'
+
 /** Formats an ISO timestamp as the date shown beneath a letter's sign-off. */
 export function formatLetterDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-GB', {
     day: 'numeric',
     month: 'long',
     year: 'numeric',
-    timeZone: 'UTC',
+    timeZone: LETTER_TIME_ZONE,
   })
+}
+
+/** Formats an ISO timestamp with the exact time, for the open letter view. */
+export function formatLetterTimestamp(iso: string): string {
+  const date = formatLetterDate(iso)
+  const time = new Date(iso).toLocaleTimeString('en-GB', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: LETTER_TIME_ZONE,
+  })
+  return `${date} at ${time}`
 }
 
 /**
