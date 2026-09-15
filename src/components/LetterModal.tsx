@@ -114,13 +114,16 @@ export function LetterModal({
       aria-label={`Letter from ${authorName}`}
     >
       {/*
-        Forced onto its own compositing layer (translateZ) — otherwise Chrome
-        drops the backdrop-filter once the panel's layoutId transform
-        animation settles, so the blur is visible mid-open and then vanishes.
+        will-change keeps this on its own compositing layer for as long as
+        the modal is mounted — otherwise Chrome drops the backdrop-filter
+        once the panel's layoutId transform animation settles, so the blur
+        is visible mid-open and then vanishes. Deliberately NOT a `transform`
+        hack: combining `transform` with `backdrop-filter` on the same
+        element is a known Safari bug that kills the filter outright.
       */}
       <div
-        className="fixed inset-0 bg-ink-ui/25 backdrop-blur-[2px]"
-        style={{ transform: 'translateZ(0)' }}
+        className="fixed inset-0 bg-ink-ui/25 backdrop-blur-sm"
+        style={{ willChange: 'backdrop-filter' }}
         aria-hidden
       />
 
@@ -133,23 +136,16 @@ export function LetterModal({
         className="relative w-full max-w-[600px] focus:outline-none"
       >
         <PaperTexture className="p-8 sm:p-12">
-          <button
+          <motion.button
             type="button"
             onClick={onClose}
             aria-label="Close letter"
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.95 }}
             className="absolute right-4 top-4 rounded-full p-2 text-ink-muted transition-colors hover:text-accent"
           >
             <X size={18} />
-          </button>
-
-          <button
-            type="button"
-            onClick={onShare}
-            aria-label="Share this letter"
-            className="absolute right-14 top-4 rounded-full p-2 text-ink-muted transition-colors hover:text-accent"
-          >
-            <Share2 size={18} />
-          </button>
+          </motion.button>
 
           <p className="font-letter text-lg text-ink-letter">Dear {recipientName},</p>
 
@@ -187,6 +183,16 @@ export function LetterModal({
               </>
             ) : (
               <>
+                <motion.button
+                  type="button"
+                  onClick={onShare}
+                  aria-label="Share this letter"
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="rounded-full p-1.5 text-ink-muted transition-colors hover:text-accent"
+                >
+                  <Share2 size={18} />
+                </motion.button>
                 {!readOnly && (
                   <motion.button
                     type="button"
