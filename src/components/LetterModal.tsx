@@ -135,18 +135,23 @@ export function LetterModal({
         transition={{ type: 'spring', stiffness: 210, damping: 26 }}
         className="relative w-full max-w-[600px] focus:outline-none"
       >
-        <PaperTexture className="p-8 sm:p-12">
-          <motion.button
-            type="button"
-            onClick={onClose}
-            aria-label="Close letter"
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.95 }}
-            className="absolute right-4 top-4 rounded-full p-2 text-ink-muted transition-colors hover:text-accent"
-          >
-            <X size={18} />
-          </motion.button>
+        {/*
+          A floating chip riding the card's corner, outside PaperTexture's
+          own overflow-hidden bounds — so it reads as modal chrome sitting
+          above the letter, not a control squeezed in with the salutation.
+        */}
+        <motion.button
+          type="button"
+          onClick={onClose}
+          aria-label="Close letter"
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.95 }}
+          className="absolute -right-3 -top-3 z-10 rounded-full bg-paper-letter p-2 text-ink-muted shadow-letter-lifted ring-1 ring-paper-edge transition-colors hover:text-accent"
+        >
+          <X size={18} />
+        </motion.button>
 
+        <PaperTexture className="p-8 sm:p-12">
           <p className="font-letter text-lg text-ink-letter">Dear {recipientName},</p>
 
           <p className="mt-6 whitespace-pre-wrap font-letter text-[17px] leading-[1.85] text-ink-letter">
