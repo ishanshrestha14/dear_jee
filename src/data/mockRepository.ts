@@ -1,5 +1,5 @@
 import { generateSlug } from '../lib/slug'
-import { validateLetter } from '../lib/validation'
+import { validateBodyFont, validateLetter, validateSalutation } from '../lib/validation'
 import type {
   Bond,
   BondRepository,
@@ -96,6 +96,8 @@ function seedLetters(): Letter[] {
     isPublic: false,
     senderName: null,
     receiverName: null,
+    salutation: null,
+    bodyFont: null,
     senderArchivedAt: null,
     receiverArchivedAt: null,
     senderDeletedAt: null,
@@ -272,9 +274,16 @@ export function createMockRepositories(options: MockOptions = {}): {
       return ok({ ...letter })
     },
 
-    async send({ senderId, receiverId, message }: SendLetterInput) {
+    async send({ senderId, receiverId, message, salutation, bodyFont }: SendLetterInput) {
       const validation = validateLetter(message)
       if (!validation.ok) return fail(validation.reason)
+      // The database has check constraints for these two; the mock has none,
+      // so it enforces them here or the two implementations disagree about
+      // what is a valid letter.
+      const salutationCheck = validateSalutation(salutation)
+      if (!salutationCheck.ok) return fail(salutationCheck.reason)
+      const fontCheck = validateBodyFont(bodyFont)
+      if (!fontCheck.ok) return fail(fontCheck.reason)
 
       const open = openBondFor(senderId)
       // Mirrors letters_insert_own_to_partner: to a partner when you have
@@ -299,6 +308,8 @@ export function createMockRepositories(options: MockOptions = {}): {
         isPublic: false,
         senderName: null,
         receiverName: null,
+        salutation: salutation === null ? null : salutation.trim(),
+        bodyFont,
         senderArchivedAt: null,
         receiverArchivedAt: null,
         senderDeletedAt: null,
@@ -353,6 +364,8 @@ export function createMockRepositories(options: MockOptions = {}): {
           (letter.receiverId !== null
             ? findProfile(letter.receiverId)?.fullName
             : letter.receiverName) || 'you',
+        salutation: letter.salutation,
+        bodyFont: letter.bodyFont,
       }
       return ok(view)
     },

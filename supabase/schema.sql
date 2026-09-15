@@ -35,6 +35,29 @@ alter table letters add column if not exists receiver_deleted_at  timestamptz;
 alter table letters add column if not exists sender_name   text;
 alter table letters add column if not exists receiver_name text;
 
+-- Presentation, chosen by the writer, carried by the letter forever.
+--
+-- BOTH ARE NULLABLE AND NULL MEANS "the old behaviour". A null salutation
+-- renders the recipient's name exactly as it always did; a null body_font
+-- renders Lora. Every letter written before this change has nulls in both and
+-- must keep looking precisely as it looks now — which is why neither column
+-- gets a non-null default. A default would silently restyle correspondence
+-- people have already read.
+alter table letters add column if not exists salutation text;
+alter table letters add column if not exists body_font  text;
+
+-- body_font reaches a CSS font-family in the client, so the set is closed
+-- here as well as in TypeScript. This is the only one of the three validation
+-- layers a client cannot go around.
+alter table letters drop constraint if exists letters_body_font_known;
+alter table letters add  constraint letters_body_font_known
+  check (body_font is null or body_font in
+    ('lora', 'eb-garamond', 'courier-prime', 'caveat', 'dancing-script'));
+
+alter table letters drop constraint if exists letters_salutation_length;
+alter table letters add  constraint letters_salutation_length
+  check (salutation is null or char_length(salutation) between 1 and 60);
+
 alter table letters alter column sender_id   drop not null;
 alter table letters alter column receiver_id drop not null;
 
@@ -497,17 +520,25 @@ create trigger profiles_freeze_letters
 -- entirely on the slug being unguessable. A function makes the slug a
 -- mandatory argument, so possession of the link is the only way in.
 --
--- Returns exactly the four columns the spec allows an anonymous reader to
+-- Returns exactly the six columns the spec allows an anonymous reader to
 -- see. Ids and emails are unreachable from here.
 --
 -- The joins are LEFT joins so a shared letter survives its author's account
 -- deletion, falling back to the frozen name rather than disappearing.
+--
+-- The return type gains two columns below, and `create or replace` cannot
+-- change a function's OUT columns — it fails with "cannot change return type
+-- of existing function". This drop is what makes the file re-runnable.
+drop function if exists get_public_letter(text);
+
 create or replace function get_public_letter(slug text)
 returns table (
   message       text,
   created_at    timestamptz,
   sender_name   text,
-  receiver_name text
+  receiver_name text,
+  salutation    text,
+  body_font     text
 )
 language sql
 stable
@@ -517,7 +548,9 @@ as $$
   select l.message,
          l.created_at,
          coalesce(sender.full_name, l.sender_name),
-         coalesce(receiver.full_name, l.receiver_name)
+         coalesce(receiver.full_name, l.receiver_name),
+         l.salutation,
+         l.body_font
   from letters l
   left join profiles sender   on sender.id   = l.sender_id
   left join profiles receiver on receiver.id = l.receiver_id
@@ -571,9 +604,15 @@ language plpgsql
 set search_path = public, pg_temp
 as $$
 begin
+  -- A letter cannot be rewritten after it is sent, and how it addressed
+  -- someone and what face it was written in are part of the letter. Without
+  -- these two, a sender could change the salutation on a letter the recipient
+  -- had already read.
   if new.message is distinct from old.message
      or new.created_at is distinct from old.created_at
-     or new.id is distinct from old.id then
+     or new.id is distinct from old.id
+     or new.salutation is distinct from old.salutation
+     or new.body_font is distinct from old.body_font then
     raise exception 'IMMUTABLE_COLUMN';
   end if;
 

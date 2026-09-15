@@ -1,7 +1,7 @@
 import { useParams } from 'react-router-dom'
 import { PaperTexture } from '../design/PaperTexture'
+import { LetterSheet } from '../components/LetterSheet'
 import { usePublicLetter } from '../hooks/usePublicLetter'
-import { formatLetterDate } from '../lib/format'
 
 export default function PublicLetter() {
   const { slug } = useParams<{ slug: string }>()
@@ -32,19 +32,24 @@ export default function PublicLetter() {
     <div className="min-h-screen bg-paper-app px-4 py-12 sm:py-20">
       <div className="mx-auto max-w-[600px]">
         <PaperTexture className="p-8 sm:p-12">
-          <p className="font-letter text-lg text-ink-letter">Dear {letter.receiverName},</p>
-          <p className="mt-6 whitespace-pre-wrap font-letter text-[17px] leading-[1.85] text-ink-letter">
-            {letter.message}
-          </p>
-          <div className="mt-10 text-right">
-            <p className="font-hand text-3xl text-ink-ui">With love, {letter.senderName}</p>
-            <p className="mt-2 font-ui text-xs tracking-wide text-ink-muted">
-              {formatLetterDate(letter.createdAt)}
-            </p>
-          </div>
+          <LetterSheet
+            salutation={letter.salutation}
+            body={letter.message}
+            bodyFont={letter.bodyFont}
+            authorName={letter.senderName}
+            recipientName={letter.receiverName}
+            createdAt={letter.createdAt}
+          />
         </PaperTexture>
 
         <p className="mt-8 text-center font-hand text-xl text-ink-muted">Dear Jee</p>
+        <p className="mt-2 text-center font-ui text-xs text-ink-muted">
+          Made with{' '}
+          <span role="img" aria-label="love">
+            ❤️
+          </span>{' '}
+          by Pin3appl3ishan
+        </p>
       </div>
     </div>
   )

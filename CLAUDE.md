@@ -59,8 +59,14 @@ These are not style preferences. Each was a real defect found in review.
 - Palette is fixed: `#FDFBF7`, `#F4EFE6`, `#2C2825`, `#1A1A1A` at 85%,
   `#C87963`, `#D4AF37`, plus `--color-paper-edge`, `--color-ink-muted`,
   `--color-accent-soft`.
-- Three type roles only: Plus Jakarta Sans (`font-ui`), Lora (`font-letter`),
-  Caveat (`font-hand`).
+- **Three type ROLES only** — `font-ui` (Plus Jakarta Sans), `font-letter`, and
+  `font-hand` (Caveat). The `font-letter` role is user-selectable per letter
+  from a fixed set of five: Lora (default), EB Garamond, Courier Prime, Caveat,
+  Dancing Script. Adding a sixth means changing `BODY_FONTS` in
+  `src/lib/validation.ts`, the `letters_body_font_known` check constraint, and
+  the loader in `src/design/letterFonts.ts` — all three, or a letter becomes
+  unwritable, unreadable, or unstyled. UI chrome uses only `font-ui` and
+  `font-hand`.
 - A misspelled Tailwind token emits NO CSS and fails silently. Check names.
 - All animation respects `prefers-reduced-motion` through the single
   `<MotionConfig reducedMotion="user">` in `src/app/App.tsx`. Never add

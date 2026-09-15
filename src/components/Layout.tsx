@@ -47,6 +47,15 @@ export function Layout({ children }: LayoutProps) {
         )}
       </header>
       <main className="mx-auto max-w-3xl px-6 pb-24">{children}</main>
+      <footer className="pb-10 text-center">
+        <p className="font-ui text-xs text-ink-muted">
+          Made with{' '}
+          <span role="img" aria-label="love">
+            ❤️
+          </span>{' '}
+          by Pin3appl3ishan
+        </p>
+      </footer>
     </div>
   )
 }

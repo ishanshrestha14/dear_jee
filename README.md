@@ -24,7 +24,7 @@ things that bite.
 | Command | Does |
 |---|---|
 | `npm run dev` | Dev server |
-| `npm test` | Vitest, 60 logic-level tests across 4 files |
+| `npm test` | Vitest, 74 logic-level tests across 4 files |
 | `npm run typecheck` | `tsc -b` — the real type gate |
 | `npm run build` | Typecheck plus production build |
 | `npm run lint` | oxlint |
@@ -39,13 +39,13 @@ exits 0. Use `npm run typecheck`.
 src/
   app/         App shell and routes
   auth/        AuthProvider, useAuth — session, profile, partner
-  components/  Layout, LetterCard, LetterModal, ComposeLetter, RequireAuth,
-               InviteLink, ShareModal, Toast
+  components/  Layout, LetterCard, LetterModal, LetterSheet, ComposeLetter,
+               RequireAuth, InviteLink, ShareModal, Toast
   routes/      Inbox, Compose, AuthScreen, SetupProfile, JoinPartner,
                Settings, Chapters, Chapter, Archive, PublicLetter
-  design/      tokens.css, fonts, PaperTexture
+  design/      tokens.css, fonts, letterFonts, PaperTexture
   data/        types, mockRepository, supabaseRepository, contractTests
-  hooks/       useLetters, useBonds, usePublicLetter
+  hooks/       useLetters, useBonds, usePublicLetter, usePoll
   lib/         slug, validation, format
 supabase/      schema.sql, policies.sql, reset-test-data.sql, README.md
 docs/superpowers/
@@ -340,6 +340,74 @@ live project, and the one-shot `supabase/reset-test-data.sql` that follows,
 is the owner's step and had not been run as of this record. Until it is, the
 app continues to run on the mock in development and the pre-Phase-6 schema in
 production.
+
+## Phase 7 — Composer, live delivery, and a reading view *(complete, migration pending)*
+
+A letter gained a voice and a face, and the inbox stopped needing a reload.
+`letters.salutation` and `letters.body_font` are both nullable, and null means
+"unset, use the default" — the recipient's name as before, Lora as before —
+because every letter already in the database has nulls in both and must keep
+looking exactly as it looks now. A non-null default would have silently
+rewritten the appearance of existing correspondence.
+
+- **`body_font` is constrained three times**, because each layer can be
+  bypassed by the one below it: a TypeScript union, `validateLetter`'s runtime
+  check, and a Postgres check constraint. The constraint is the only layer a
+  client cannot get around — `body_font` reaches a `style` attribute, so an
+  unconstrained string is a small injection surface. The mock enforces the
+  first two and reimplements the third in TypeScript, per the standing rule.
+- **The three new fonts load lazily.** The original three (Plus Jakarta Sans,
+  Lora, Caveat) still ship eagerly because the app chrome uses them; EB
+  Garamond, Courier Prime and Dancing Script are dynamically imported only
+  when a letter actually calls for one. This protects Phase 5's work getting a
+  stranger's first load of a shared letter to 133 kB gzipped — declaring three
+  more font families eagerly would have put their `@font-face` subsets back on
+  the public route's critical path for a face most letters will never use.
+- **Delivery polls; it does not open a socket.** `usePoll` refetches every 30
+  seconds while the tab is visible, immediately on refocus, never while
+  hidden. Supabase Realtime was rejected for three reasons: it needs
+  replication enabled in the dashboard, which is exactly the kind of
+  silent-failure setup step this project has already been bitten by twice
+  (unset env vars, an unapplied migration); the mock would need a fake event
+  emitter to stay honest, which polling does not; and a dropped socket on
+  mobile means silently stale data unless polling is added underneath it
+  anyway. Mock parity was free — polling is just `load()` on a timer, which is
+  what decided it over a websocket.
+- **Polling forced a latent bug to be fixed first, not incidentally.** Nothing
+  previously reloaded the letter list while a letter was open, so `LetterModal`
+  and `PublicLetter` capturing "the open letter" as a snapshot was harmless.
+  Polling replaces the list underneath an open reader, so the open letter is
+  now derived from the live list on every route instead of captured once —
+  otherwise a letter archived on the other device, or edited state arriving
+  from a refetch, could leave the modal showing something no longer true.
+- **`LetterSheet` is one component now, not two that had already drifted.**
+  The recipient's modal and the public page used to duplicate the letter's
+  markup, with different spacing and the public page missing the modal's
+  chrome. Both now render the same `LetterSheet`, which takes presentation
+  props only and imports no values from `src/data/`. Applying the redesign —
+  a fold crease, a deckled edge, wider margins, the date as a postmark — to
+  only the modal would have left a stranger reading a plainer letter than the
+  recipient does, which is backwards: the public page is the one a person
+  chooses to show someone.
+- **Two bugs carried from the responsive audit are closed by that same
+  component.** A pasted URL no longer pushes the panel past a 375px viewport
+  (`break-words` on the body). Archive, Delete, close and share all meet a
+  44px tap target instead of the previous ~16–34px.
+- The letter's chosen font applies to the salutation and the body — the prose
+  the writer wrote. The signature keeps `font-hand` (Caveat) regardless,
+  because it stands for a hand signing a page rather than for the letter's
+  typesetting, and should stay constant across a correspondence.
+- `LetterCard` renders its snippet in the letter's own face via `fontStack`,
+  without calling the lazy loader — a grid of twelve cards fetching every
+  family at once is exactly the cost the loader exists to avoid. The card
+  falls back to the stack's serif until the letter is actually opened.
+
+**Migration status.** `supabase/schema.sql` and `supabase/policies.sql` carry
+the two new columns, their check constraints, and `get_public_letter`'s
+widened return type — the function is dropped and recreated rather than
+`create or replace`d, because its return type changed. Both files are
+idempotent by inspection. Applying them to the live project is the owner's
+step and had not been run as of this record.
 
 ---
 

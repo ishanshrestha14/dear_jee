@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Archive, ArchiveRestore, Share2, Trash2, X } from 'lucide-react'
 import { PaperTexture } from '../design/PaperTexture'
-import { formatLetterTimestamp } from '../lib/format'
+import { LetterSheet } from './LetterSheet'
 import type { Letter } from '../data/types'
 
 interface LetterModalProps {
@@ -136,30 +136,34 @@ export function LetterModal({
         className="relative w-full max-w-[600px] focus:outline-none"
       >
         <PaperTexture className="p-8 sm:p-12">
-          <div className="flex items-center justify-between gap-4">
-            <p className="font-letter text-lg text-ink-letter">Dear {recipientName},</p>
-            <motion.button
-              type="button"
-              onClick={onClose}
-              aria-label="Close letter"
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.95 }}
-              className="shrink-0 rounded-full p-1.5 text-ink-muted transition-colors hover:text-accent"
-            >
-              <X size={18} />
-            </motion.button>
-          </div>
+          {/*
+            Close lives as an overlay above LetterSheet (not inside it —
+            LetterSheet is the letter's own content, shared with the public
+            page, which has no close button) but nudged to land level with
+            the salutation it sits beside rather than floating off on its
+            own. Share moved down to the bottom action row with Archive and
+            Delete; the previous top-right Share button here was a
+            duplicate left over from an earlier pass.
+          */}
+          <motion.button
+            type="button"
+            onClick={onClose}
+            aria-label="Close letter"
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.95 }}
+            className="absolute right-6 top-0 z-10 rounded-full p-1.5 text-ink-muted transition-colors hover:text-accent sm:right-10"
+          >
+            <X size={18} />
+          </motion.button>
 
-          <p className="mt-6 whitespace-pre-wrap font-letter text-[17px] leading-[1.85] text-ink-letter">
-            {letter.message}
-          </p>
-
-          <div className="mt-10 text-right">
-            <p className="font-hand text-3xl text-ink-ui">With love, {authorName}</p>
-            <p className="mt-2 font-ui text-xs tracking-wide text-ink-muted">
-              {formatLetterTimestamp(letter.createdAt)}
-            </p>
-          </div>
+          <LetterSheet
+            salutation={letter.salutation}
+            body={letter.message}
+            bodyFont={letter.bodyFont}
+            authorName={authorName}
+            recipientName={recipientName}
+            createdAt={letter.createdAt}
+          />
 
           <div className="mt-10 flex items-center justify-end gap-4 border-t border-paper-edge pt-5">
             {confirmingDelete ? (
@@ -170,14 +174,14 @@ export function LetterModal({
                 <button
                   type="button"
                   onClick={onDelete}
-                  className="font-ui text-xs text-accent underline underline-offset-4"
+                  className="px-3 py-3.5 font-ui text-xs text-accent underline underline-offset-4"
                 >
                   Delete
                 </button>
                 <button
                   type="button"
                   onClick={() => setConfirmingDelete(false)}
-                  className="font-ui text-xs text-ink-muted underline underline-offset-4"
+                  className="px-3 py-3.5 font-ui text-xs text-ink-muted underline underline-offset-4"
                 >
                   Cancel
                 </button>
