@@ -43,6 +43,13 @@ export default function PublicLetter() {
         </PaperTexture>
 
         <p className="mt-8 text-center font-hand text-xl text-ink-muted">Dear Jee</p>
+        <p className="mt-2 text-center font-ui text-xs text-ink-muted">
+          Made with{' '}
+          <span role="img" aria-label="love">
+            ❤️
+          </span>{' '}
+          by Pin3appl3ishan
+        </p>
       </div>
     </div>
   )
