@@ -17,6 +17,7 @@ export default function Inbox() {
     letters,
     archived,
     held,
+    scheduled,
     hasBond,
     partnerName,
     loading,
@@ -41,6 +42,7 @@ export default function Inbox() {
   // (which assumes a chapter to archive into and a receiver to share with).
   const [expandedHeldId, setExpandedHeldId] = useState<string | null>(null)
   const [confirmingHeldDeleteId, setConfirmingHeldDeleteId] = useState<string | null>(null)
+  const [confirmingScheduledCancelId, setConfirmingScheduledCancelId] = useState<string | null>(null)
 
   // Derived, not captured — the same reason `sharing` is derived. Polling
   // replaces this list while a letter is open, and a captured Letter object
@@ -184,6 +186,80 @@ export default function Inbox() {
     </div>
   )
 
+  // A letter still waiting for its date, or one that will never arrive
+  // because its bond ended first — receiverDeletedAt is what tells the two
+  // apart, and it is only ever set on a scheduled letter by that bond-ending
+  // path (its receiver can never see it to delete it themselves).
+  const upcoming = scheduled.length > 0 && (
+    <div className="mt-8 text-left">
+      <h2 className="font-ui text-xs tracking-wide text-ink-muted">Scheduled · {scheduled.length}</h2>
+      <ul className="mt-3 space-y-3">
+        {scheduled.map((letter) => {
+          const cancelledByBondEnding = letter.receiverDeletedAt !== null
+          const confirmingCancel = confirmingScheduledCancelId === letter.id
+          return (
+            <li
+              key={letter.id}
+              className="rounded-letter border border-dashed border-paper-edge bg-paper-letter px-4 py-3"
+            >
+              <p className="font-letter text-[15px] leading-relaxed text-ink-letter">
+                {snippet(letter.message, 100)}
+              </p>
+              <p className="mt-2 flex items-center gap-1.5 font-ui text-xs tracking-wide text-ink-muted">
+                <span role="img" aria-label="Calendar">
+                  📅
+                </span>
+                {cancelledByBondEnding
+                  ? 'Not delivered — bond ended'
+                  : `Arrives ${formatLetterDate(letter.scheduledFor!)}`}
+              </p>
+              <div className="mt-3 flex items-center gap-4">
+                {!cancelledByBondEnding && (
+                  <Link
+                    to={`/compose?edit=${letter.id}`}
+                    className="font-ui text-xs text-accent underline underline-offset-4"
+                  >
+                    Edit
+                  </Link>
+                )}
+                {confirmingCancel ? (
+                  <>
+                    <span className="font-ui text-xs text-ink-muted">Cancel permanently?</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfirmingScheduledCancelId(null)
+                        void deleteForMe(letter.id)
+                      }}
+                      className="font-ui text-xs text-accent underline underline-offset-4"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingScheduledCancelId(null)}
+                      className="font-ui text-xs text-ink-muted underline underline-offset-4"
+                    >
+                      Keep it
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingScheduledCancelId(letter.id)}
+                    className="font-ui text-xs text-ink-muted underline underline-offset-4 hover:text-accent"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+
   if (letters.length === 0) {
     const unlinked = profile !== null && profile.partnerId === null
 
@@ -232,6 +308,7 @@ export default function Inbox() {
         )}
 
         {unsent}
+        {upcoming}
 
         <AnimatePresence>
           {toast !== null && <Toast key="toast" message={toast} onDone={() => setToast(null)} />}
@@ -266,6 +343,7 @@ export default function Inbox() {
       )}
 
       {unsent}
+      {upcoming}
 
       <div className="grid gap-5 sm:grid-cols-2">
         {letters.map((letter) => (
