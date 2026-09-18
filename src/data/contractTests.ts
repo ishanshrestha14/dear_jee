@@ -613,6 +613,158 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
       })
     })
 
+    describe('scheduled delivery', () => {
+      function daysFromNow(n: number): string {
+        return new Date(Date.now() + n * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      }
+
+      it('is invisible to the receiver before its date', async () => {
+        const future = daysFromNow(7)
+        const sent = await fx.letters.send({
+          senderId: fx.userId,
+          receiverId: fx.partnerId,
+          message: 'A letter for later.',
+          salutation: null,
+          bodyFont: null,
+          scheduledFor: future,
+        })
+        expect(sent.error).toBeNull()
+
+        // fx.userId is the sender; a fresh unlinked-then-relinked fixture has
+        // no separate "log in as the partner" call, so this checks the
+        // receiver's own read path the same way listScheduled below checks
+        // the sender's — via listConversation, which the receiver would use.
+        const { data } = await fx.letters.listConversation(fx.partnerId)
+        expect(data!.some((l) => l.id === sent.data!.id)).toBe(false)
+      })
+
+      it('appears to the receiver once its date arrives', async () => {
+        const today = daysFromNow(0)
+        const sent = await fx.letters.send({
+          senderId: fx.userId,
+          receiverId: fx.partnerId,
+          message: 'Arriving today.',
+          salutation: null,
+          bodyFont: null,
+          scheduledFor: today,
+        })
+        const { data } = await fx.letters.listConversation(fx.partnerId)
+        expect(data!.some((l) => l.id === sent.data!.id)).toBe(true)
+      })
+
+      it('is excluded from the sender\'s own listConversation while pending', async () => {
+        const future = daysFromNow(7)
+        const sent = await fx.letters.send({
+          senderId: fx.userId,
+          receiverId: fx.partnerId,
+          message: 'Not in the grid yet.',
+          salutation: null,
+          bodyFont: null,
+          scheduledFor: future,
+        })
+        const { data } = await fx.letters.listConversation(fx.userId)
+        expect(data!.some((l) => l.id === sent.data!.id)).toBe(false)
+      })
+
+      it('listScheduled returns the sender\'s own pending letters', async () => {
+        const future = daysFromNow(7)
+        const sent = await fx.letters.send({
+          senderId: fx.userId,
+          receiverId: fx.partnerId,
+          message: 'On the list.',
+          salutation: null,
+          bodyFont: null,
+          scheduledFor: future,
+        })
+        const { data } = await fx.letters.listScheduled(fx.userId)
+        expect(data!.some((l) => l.id === sent.data!.id)).toBe(true)
+      })
+
+      it('editScheduled rewrites a pending letter', async () => {
+        const future = daysFromNow(7)
+        const sent = await fx.letters.send({
+          senderId: fx.userId,
+          receiverId: fx.partnerId,
+          message: 'Original wording.',
+          salutation: null,
+          bodyFont: null,
+          scheduledFor: future,
+        })
+        const laterStill = daysFromNow(14)
+        const edited = await fx.letters.editScheduled(
+          sent.data!.id,
+          fx.userId,
+          'Rewritten wording.',
+          'darling',
+          'caveat',
+          laterStill,
+        )
+        expect(edited.error).toBeNull()
+        expect(edited.data!.message).toBe('Rewritten wording.')
+        expect(edited.data!.salutation).toBe('darling')
+        expect(edited.data!.bodyFont).toBe('caveat')
+        expect(edited.data!.scheduledFor).toBe(laterStill)
+      })
+
+      it('editScheduled refuses a letter that has already delivered', async () => {
+        const sent = await fx.letters.send({
+          senderId: fx.userId,
+          receiverId: fx.partnerId,
+          message: 'Already sent.',
+          salutation: null,
+          bodyFont: null,
+        })
+        const result = await fx.letters.editScheduled(
+          sent.data!.id,
+          fx.userId,
+          'Trying to rewrite it.',
+          null,
+          null,
+          null,
+        )
+        expect(result.error).toBe('A sent letter cannot be edited.')
+      })
+
+      it('editScheduled refuses anyone but the letter\'s own sender', async () => {
+        const future = daysFromNow(7)
+        const sent = await fx.letters.send({
+          senderId: fx.userId,
+          receiverId: fx.partnerId,
+          message: 'Not yours to rewrite.',
+          salutation: null,
+          bodyFont: null,
+          scheduledFor: future,
+        })
+        const result = await fx.letters.editScheduled(
+          sent.data!.id,
+          fx.partnerId,
+          'Trying to rewrite someone else\'s letter.',
+          null,
+          null,
+          future,
+        )
+        expect(result.error).toBe('A sent letter cannot be edited.')
+      })
+
+      it('cancels a pending letter when the bond it was scheduled for ends, keeping the sender\'s own view', async () => {
+        const future = daysFromNow(7)
+        const sent = await fx.letters.send({
+          senderId: fx.userId,
+          receiverId: fx.partnerId,
+          message: 'Never arrives.',
+          salutation: null,
+          bodyFont: null,
+          scheduledFor: future,
+        })
+        await fx.bonds.unlink(fx.userId)
+
+        const { data: scheduled } = await fx.letters.listScheduled(fx.userId)
+        const cancelled = scheduled!.find((l) => l.id === sent.data!.id)
+        expect(cancelled).toBeDefined()
+        expect(cancelled!.receiverDeletedAt).not.toBeNull()
+      })
+    })
+
     describe('salutation and face', () => {
       it('stores and returns both', async () => {
         const sent = await fx.letters.send({

@@ -1,5 +1,5 @@
 import { generateSlug } from '../lib/slug'
-import { validateBodyFont, validateLetter, validateSalutation } from '../lib/validation'
+import { validateBodyFont, validateLetter, validateSalutation, validateScheduledFor } from '../lib/validation'
 import type {
   Bond,
   BondRepository,
@@ -18,6 +18,11 @@ export const MOCK_BOND_ID = 'bond-seed'
 
 const ok = <T>(data: T): Result<T> => ({ data, error: null })
 const fail = <T>(error: string): Result<T> => ({ data: null, error })
+
+/** Today as `YYYY-MM-DD`, comparable directly against `scheduledFor`. */
+function today(): string {
+  return new Date().toISOString().slice(0, 10)
+}
 
 interface MockOptions {
   /** Start with both profiles unlinked, to exercise the joining flow. */
@@ -104,6 +109,7 @@ function seedLetters(): Letter[] {
     receiverDeletedAt: null,
     bondId: MOCK_BOND_ID,
     sentAt: null,
+    scheduledFor: null,
   }
   return [
     {
@@ -139,7 +145,9 @@ function seedLetters(): Letter[] {
  */
 function visibleTo(l: Letter, userId: string): boolean {
   if (l.senderId === userId) return l.senderDeletedAt === null
-  if (l.receiverId === userId) return l.receiverDeletedAt === null
+  if (l.receiverId === userId) {
+    return l.receiverDeletedAt === null && (l.scheduledFor === null || l.scheduledFor <= today())
+  }
   return false
 }
 
@@ -184,7 +192,10 @@ export function createMockRepositories(options: MockOptions = {}): {
       const mine = letters
         .filter(
           (l) =>
-            l.bondId === open.id && visibleTo(l, userId) && !isArchivedBy(l, userId),
+            l.bondId === open.id &&
+            visibleTo(l, userId) &&
+            !isArchivedBy(l, userId) &&
+            !(l.senderId === userId && l.scheduledFor !== null && l.scheduledFor > today()),
         )
         .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
       return ok(mine.map((l) => ({ ...l })))
@@ -195,7 +206,11 @@ export function createMockRepositories(options: MockOptions = {}): {
       if (open === undefined) return ok([])
       const mine = letters
         .filter(
-          (l) => l.bondId === open.id && visibleTo(l, userId) && isArchivedBy(l, userId),
+          (l) =>
+            l.bondId === open.id &&
+            visibleTo(l, userId) &&
+            isArchivedBy(l, userId) &&
+            !(l.senderId === userId && l.scheduledFor !== null && l.scheduledFor > today()),
         )
         .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
       return ok(mine.map((l) => ({ ...l })))
@@ -226,6 +241,47 @@ export function createMockRepositories(options: MockOptions = {}): {
         .filter((l) => l.bondId === null && l.senderId === userId && visibleTo(l, userId))
         .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
       return ok(mine.map((l) => ({ ...l })))
+    },
+
+    async listScheduled(userId) {
+      const mine = letters
+        .filter(
+          (l) =>
+            l.senderId === userId &&
+            l.senderDeletedAt === null &&
+            l.scheduledFor !== null &&
+            l.scheduledFor > today(),
+        )
+        .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+      return ok(mine.map((l) => ({ ...l })))
+    },
+
+    async editScheduled(letterId, userId, message, salutation, bodyFont, scheduledFor) {
+      const letter = letters.find((l) => l.id === letterId)
+      if (letter === undefined) return fail('Letter not found.')
+      // Mirrors enforce_letter_update's sender_editing_pending: only the
+      // letter's own sender, and only while it has not yet delivered.
+      if (
+        letter.senderId !== userId ||
+        letter.scheduledFor === null ||
+        letter.scheduledFor <= today()
+      ) {
+        return fail('A sent letter cannot be edited.')
+      }
+      const validation = validateLetter(message)
+      if (!validation.ok) return fail(validation.reason)
+      const salutationCheck = validateSalutation(salutation)
+      if (!salutationCheck.ok) return fail(salutationCheck.reason)
+      const fontCheck = validateBodyFont(bodyFont)
+      if (!fontCheck.ok) return fail(fontCheck.reason)
+      const scheduledCheck = validateScheduledFor(scheduledFor)
+      if (!scheduledCheck.ok) return fail(scheduledCheck.reason)
+
+      letter.message = message.trim()
+      letter.salutation = salutation === null ? null : salutation.trim()
+      letter.bodyFont = bodyFont
+      letter.scheduledFor = scheduledFor
+      return ok({ ...letter })
     },
 
     async sendHeld(letterId, userId) {
@@ -274,16 +330,18 @@ export function createMockRepositories(options: MockOptions = {}): {
       return ok({ ...letter })
     },
 
-    async send({ senderId, receiverId, message, salutation, bodyFont }: SendLetterInput) {
+    async send({ senderId, receiverId, message, salutation, bodyFont, scheduledFor = null }: SendLetterInput) {
       const validation = validateLetter(message)
       if (!validation.ok) return fail(validation.reason)
-      // The database has check constraints for these two; the mock has none,
-      // so it enforces them here or the two implementations disagree about
-      // what is a valid letter.
+      // The database has check constraints for these three; the mock has
+      // none, so it enforces them here or the two implementations disagree
+      // about what is a valid letter.
       const salutationCheck = validateSalutation(salutation)
       if (!salutationCheck.ok) return fail(salutationCheck.reason)
       const fontCheck = validateBodyFont(bodyFont)
       if (!fontCheck.ok) return fail(fontCheck.reason)
+      const scheduledCheck = validateScheduledFor(scheduledFor)
+      if (!scheduledCheck.ok) return fail(scheduledCheck.reason)
 
       const open = openBondFor(senderId)
       // Mirrors letters_insert_own_to_partner: to a partner when you have
@@ -316,6 +374,7 @@ export function createMockRepositories(options: MockOptions = {}): {
         receiverDeletedAt: null,
         bondId: receiverId === null ? null : open!.id,
         sentAt: receiverId === null ? null : now,
+        scheduledFor,
       }
       letters.push(letter)
       return ok({ ...letter })
@@ -468,6 +527,17 @@ export function createMockRepositories(options: MockOptions = {}): {
 
       for (const letter of letters) {
         if (letter.bondId !== open.id) continue
+        // Pending and never delivered: cancel it instead of archiving it.
+        // Archiving would put it in the sender's own Archive, looking like
+        // an ordinary delivered letter instead of one that never arrived.
+        // Only the receiver's side is gated, the same column a self-delete
+        // already uses — the sender keeps their own copy, and the app
+        // tells the two states apart by checking receiverDeletedAt on a
+        // letter only its sender can see.
+        if (letter.scheduledFor !== null && letter.scheduledFor > today()) {
+          letter.receiverDeletedAt ??= at
+          continue
+        }
         if (letter.senderId !== null) letter.senderArchivedAt ??= at
         if (letter.receiverId !== null) letter.receiverArchivedAt ??= at
         letter.senderName ??= letter.senderId === null ? null : findProfile(letter.senderId)?.fullName ?? null
