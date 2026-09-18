@@ -1,6 +1,6 @@
 import { supabase } from './supabaseClient'
 import { generateSlug } from '../lib/slug'
-import { validateBodyFont, validateLetter, validateSalutation } from '../lib/validation'
+import { validateBodyFont, validateLetter, validateSalutation, validateScheduledFor } from '../lib/validation'
 import type {
   Bond,
   BodyFont,
@@ -37,6 +37,7 @@ interface LetterRow {
   receiver_deleted_at: string | null
   bond_id: string | null
   sent_at: string | null
+  scheduled_for: string | null
 }
 
 interface ProfileRow {
@@ -66,6 +67,7 @@ const toLetter = (r: LetterRow): Letter => ({
   receiverDeletedAt: r.receiver_deleted_at,
   bondId: r.bond_id,
   sentAt: r.sent_at,
+  scheduledFor: r.scheduled_for,
 })
 
 const toProfile = (r: ProfileRow): Profile => ({
@@ -223,7 +225,14 @@ export function createSupabaseRepositories(): {
           .order('created_at', { ascending: false })
         if (error) return fail(letterErrorMessage(error.message))
         const rows = (data as LetterRow[]).map(toLetter)
-        return ok(rows.filter((l) => !archivedBy(l, userId)))
+        const today = new Date().toISOString().slice(0, 10)
+        return ok(
+          rows.filter(
+            (l) =>
+              !archivedBy(l, userId) &&
+              !(l.senderId === userId && l.scheduledFor !== null && l.scheduledFor > today),
+          ),
+        )
       })
     },
 
@@ -240,7 +249,14 @@ export function createSupabaseRepositories(): {
           .order('created_at', { ascending: false })
         if (error) return fail(letterErrorMessage(error.message))
         const rows = (data as LetterRow[]).map(toLetter)
-        return ok(rows.filter((l) => archivedBy(l, userId)))
+        const today = new Date().toISOString().slice(0, 10)
+        return ok(
+          rows.filter(
+            (l) =>
+              archivedBy(l, userId) &&
+              !(l.senderId === userId && l.scheduledFor !== null && l.scheduledFor > today),
+          ),
+        )
       })
     },
 
@@ -302,7 +318,7 @@ export function createSupabaseRepositories(): {
       })
     },
 
-    async send({ senderId, receiverId, message, salutation, bodyFont }: SendLetterInput) {
+    async send({ senderId, receiverId, message, salutation, bodyFont, scheduledFor = null }: SendLetterInput) {
       return guard(async () => {
         // bond_id is deliberately absent from this insert: `grant insert
         // (sender_id, receiver_id, message, salutation, body_font)` forbids
@@ -319,6 +335,8 @@ export function createSupabaseRepositories(): {
         if (!salutationCheck.ok) return fail(salutationCheck.reason)
         const fontCheck = validateBodyFont(bodyFont)
         if (!fontCheck.ok) return fail(fontCheck.reason)
+        const scheduledCheck = validateScheduledFor(scheduledFor)
+        if (!scheduledCheck.ok) return fail(scheduledCheck.reason)
 
         const { data, error } = await db
           .from('letters')
@@ -328,6 +346,7 @@ export function createSupabaseRepositories(): {
             message: message.trim(),
             salutation: salutation === null ? null : salutation.trim(),
             body_font: bodyFont,
+            scheduled_for: scheduledFor,
           })
           .select()
           .single()
@@ -447,6 +466,49 @@ export function createSupabaseRepositories(): {
           .order('created_at', { ascending: false })
         if (error) return fail(letterErrorMessage(error.message))
         return ok((data as LetterRow[]).map(toLetter))
+      })
+    },
+
+    async listScheduled(userId) {
+      return guard(async () => {
+        const today = new Date().toISOString().slice(0, 10)
+        const { data, error } = await db
+          .from('letters')
+          .select('*')
+          .eq('sender_id', userId)
+          .not('scheduled_for', 'is', null)
+          .gt('scheduled_for', today)
+          .order('created_at', { ascending: false })
+        if (error) return fail(letterErrorMessage(error.message))
+        return ok((data as LetterRow[]).map(toLetter))
+      })
+    },
+
+    async editScheduled(letterId, _userId, message, salutation, bodyFont, scheduledFor) {
+      return guard(async () => {
+        const validation = validateLetter(message)
+        if (!validation.ok) return fail(validation.reason)
+        const salutationCheck = validateSalutation(salutation)
+        if (!salutationCheck.ok) return fail(salutationCheck.reason)
+        const fontCheck = validateBodyFont(bodyFont)
+        if (!fontCheck.ok) return fail(fontCheck.reason)
+        const scheduledCheck = validateScheduledFor(scheduledFor)
+        if (!scheduledCheck.ok) return fail(scheduledCheck.reason)
+
+        const { data, error } = await db
+          .from('letters')
+          .update({
+            message: message.trim(),
+            salutation: salutation === null ? null : salutation.trim(),
+            body_font: bodyFont,
+            scheduled_for: scheduledFor,
+          })
+          .eq('id', letterId)
+          .select()
+          .maybeSingle()
+        if (error) return fail(letterErrorMessage(error.message))
+        if (data === null) return fail('A sent letter cannot be edited.')
+        return ok(toLetter(data as LetterRow))
       })
     },
 
