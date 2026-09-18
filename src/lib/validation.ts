@@ -57,3 +57,13 @@ export function validateBodyFont(bodyFont: string | null): ValidationResult {
   }
   return { ok: true }
 }
+
+/** Null means "deliver now". A chosen date must be today or later. */
+export function validateScheduledFor(scheduledFor: string | null): ValidationResult {
+  if (scheduledFor === null) return { ok: true }
+  const today = new Date().toISOString().slice(0, 10)
+  if (scheduledFor < today) {
+    return { ok: false, reason: 'That date has already passed.' }
+  }
+  return { ok: true }
+}

@@ -4,6 +4,7 @@ import {
   MAX_LETTER_LENGTH,
   validateSalutation,
   validateBodyFont,
+  validateScheduledFor,
   BODY_FONTS,
   MAX_SALUTATION_LENGTH,
 } from './validation'
@@ -74,5 +75,29 @@ describe('validateBodyFont', () => {
 
   it('rejects a CSS injection attempt', () => {
     expect(validateBodyFont('lora; background: url(x)').ok).toBe(false)
+  })
+})
+
+describe('validateScheduledFor', () => {
+  it('accepts null — deliver now', () => {
+    expect(validateScheduledFor(null)).toEqual({ ok: true })
+  })
+
+  it('accepts today', () => {
+    const today = new Date().toISOString().slice(0, 10)
+    expect(validateScheduledFor(today)).toEqual({ ok: true })
+  })
+
+  it('accepts a future date', () => {
+    const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    expect(validateScheduledFor(future)).toEqual({ ok: true })
+  })
+
+  it('rejects a past date', () => {
+    const past = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    expect(validateScheduledFor(past)).toEqual({
+      ok: false,
+      reason: 'That date has already passed.',
+    })
   })
 })
