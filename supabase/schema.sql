@@ -619,16 +619,34 @@ returns trigger
 language plpgsql
 set search_path = public, pg_temp
 as $$
+declare
+  -- The one exception to "a letter cannot be rewritten after it is sent":
+  -- its own sender, and only while it is scheduled for a date that has not
+  -- yet arrived. `is not distinct from` because a NULL auth.uid() (no
+  -- caller) must never accidentally satisfy this — `<>` would yield NULL,
+  -- which is falsy in the `if` below and would silently WIDEN the
+  -- exception instead of closing it.
+  sender_editing_pending boolean := current_user = 'authenticated'
+    and old.scheduled_for is not null
+    and old.scheduled_for > current_date
+    and auth.uid() is not distinct from old.sender_id;
 begin
-  -- A letter cannot be rewritten after it is sent, and how it addressed
-  -- someone and what face it was written in are part of the letter. Without
-  -- these two, a sender could change the salutation on a letter the recipient
-  -- had already read.
-  if new.message is distinct from old.message
-     or new.created_at is distinct from old.created_at
-     or new.id is distinct from old.id
-     or new.salutation is distinct from old.salutation
-     or new.body_font is distinct from old.body_font then
+  -- created_at and id are immutable always, no exception, for anyone.
+  if new.created_at is distinct from old.created_at
+     or new.id is distinct from old.id then
+    raise exception 'IMMUTABLE_COLUMN';
+  end if;
+
+  -- message, salutation, body_font and scheduled_for itself are immutable
+  -- UNLESS the row's own sender is rewriting a letter that has not yet
+  -- delivered. The moment its date arrives — or if it was never scheduled
+  -- at all — this collapses to exactly the rule that existed before this
+  -- feature.
+  if not sender_editing_pending
+     and (new.message is distinct from old.message
+          or new.salutation is distinct from old.salutation
+          or new.body_font is distinct from old.body_font
+          or new.scheduled_for is distinct from old.scheduled_for) then
     raise exception 'IMMUTABLE_COLUMN';
   end if;
 
