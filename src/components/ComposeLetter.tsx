@@ -67,6 +67,10 @@ export function ComposeLetter({
       setError(validation.reason)
       return
     }
+    if (scheduling && scheduledFor === '') {
+      setError('Choose a date for this letter to arrive.')
+      return
+    }
     const chosenDate = scheduling && scheduledFor !== '' ? scheduledFor : null
     const dateCheck = validateScheduledFor(chosenDate)
     if (!dateCheck.ok) {

@@ -64,15 +64,17 @@ alter table letters add  constraint letters_salutation_length
 -- decision entirely.
 alter table letters add column if not exists scheduled_for date;
 
--- Re-checked on every insert AND every edit (a CHECK constraint validates
--- the row being written, using current_date at THAT moment) — so
--- rescheduling an already-pending letter to a past date is caught exactly
--- the same way a fresh insert would be. Existing rows whose date has since
--- passed are never re-validated, so this cannot retroactively break a
--- letter that has already delivered.
+-- NOT a CHECK constraint. Postgres re-validates every CHECK against the new
+-- tuple on EVERY update, regardless of which columns changed — there is no
+-- skip-if-column-unchanged optimisation for CHECKs (that only exists for
+-- foreign keys). A constraint here would mean that the day after a
+-- scheduled letter delivers, ANY unrelated update to that row (markRead,
+-- archive, delete, unlink_partner's own archiving of past scheduled
+-- letters) re-evaluates `scheduled_for >= current_date` against the now-past
+-- date and fails the whole statement. The rule instead lives in
+-- enforce_letter_update below, gated so it only fires when a client is
+-- actually changing scheduled_for.
 alter table letters drop constraint if exists letters_scheduled_for_not_past;
-alter table letters add  constraint letters_scheduled_for_not_past
-  check (scheduled_for is null or scheduled_for >= current_date);
 
 alter table letters alter column sender_id   drop not null;
 alter table letters alter column receiver_id drop not null;
@@ -610,6 +612,11 @@ as $$
     -- broke every link either of them had ever sent to anyone.
     and l.sender_deleted_at is null
     and l.receiver_deleted_at is null
+    -- security definer bypasses RLS entirely, so the receiver-visibility
+    -- date gate in letters_select_participant does not protect this
+    -- function on its own — a pending scheduled letter must not be
+    -- shareable before its date just because its slug leaked early.
+    and (l.scheduled_for is null or l.scheduled_for <= current_date)
 $$;
 
 revoke all on function get_public_letter(text) from public;
@@ -657,6 +664,11 @@ declare
   sender_editing_pending boolean := current_user = 'authenticated'
     and old.scheduled_for is not null
     and old.scheduled_for > current_date
+    -- A letter whose bond has ended will never deliver — receiver_deleted_at
+    -- is what unlink_partner sets on exactly that letter. Rewriting words
+    -- nobody will ever read gains nothing, so this closes the editing window
+    -- early rather than leaving it open until the (now meaningless) date.
+    and old.receiver_deleted_at is null
     and auth.uid() is not distinct from old.sender_id;
 begin
   -- created_at and id are immutable always, no exception, for anyone.
@@ -676,6 +688,17 @@ begin
           or new.body_font is distinct from old.body_font
           or new.scheduled_for is distinct from old.scheduled_for) then
     raise exception 'IMMUTABLE_COLUMN';
+  end if;
+
+  -- The backstop for validateScheduledFor: only checked when a client is
+  -- actually changing scheduled_for (never re-evaluated against an old,
+  -- already-past date on an unrelated column update, which is exactly what
+  -- a CHECK constraint here would have done — see the comment where that
+  -- constraint used to live, above the scheduled_for column).
+  if new.scheduled_for is distinct from old.scheduled_for
+     and new.scheduled_for is not null
+     and new.scheduled_for < current_date then
+    raise exception 'SCHEDULED_FOR_PAST';
   end if;
 
   -- sender_id and receiver_id may go to NULL and nowhere else. That single

@@ -244,13 +244,17 @@ export function createMockRepositories(options: MockOptions = {}): {
     },
 
     async listScheduled(userId) {
+      // Still in its pending-date window, OR cancelled by a bond ending
+      // (receiverDeletedAt set) — either way it never reached, or will
+      // never reach, the receiver, so it stays listed here rather than
+      // dropping out unlabelled once its date passes.
       const mine = letters
         .filter(
           (l) =>
             l.senderId === userId &&
             l.senderDeletedAt === null &&
             l.scheduledFor !== null &&
-            l.scheduledFor > today(),
+            (l.scheduledFor > today() || l.receiverDeletedAt !== null),
         )
         .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
       return ok(mine.map((l) => ({ ...l })))
@@ -260,11 +264,14 @@ export function createMockRepositories(options: MockOptions = {}): {
       const letter = letters.find((l) => l.id === letterId)
       if (letter === undefined) return fail('Letter not found.')
       // Mirrors enforce_letter_update's sender_editing_pending: only the
-      // letter's own sender, and only while it has not yet delivered.
+      // letter's own sender, only while it has not yet delivered, and only
+      // while its bond is still open — a letter a bond-ending has already
+      // cancelled gains nothing from being rewritten.
       if (
         letter.senderId !== userId ||
         letter.scheduledFor === null ||
-        letter.scheduledFor <= today()
+        letter.scheduledFor <= today() ||
+        letter.receiverDeletedAt !== null
       ) {
         return fail('A sent letter cannot be edited.')
       }
@@ -410,7 +417,8 @@ export function createMockRepositories(options: MockOptions = {}): {
           l.shareSlug === slug &&
           l.isPublic &&
           l.senderDeletedAt === null &&
-          l.receiverDeletedAt === null,
+          l.receiverDeletedAt === null &&
+          (l.scheduledFor === null || l.scheduledFor <= today()),
       )
       if (!letter) return fail('This letter is not available.')
       const view: PublicLetter = {

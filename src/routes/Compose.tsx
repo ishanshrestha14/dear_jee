@@ -13,7 +13,21 @@ export default function Compose() {
   // default rather than an error page for what is, at worst, a dead link.
   const editing = editId === null ? null : (scheduled.find((l) => l.id === editId) ?? null)
 
-  if (editId !== null && editing === null && !loading) {
+  // Wait for the scheduled list to resolve before deciding anything. On a
+  // cold load (direct navigation to /compose?edit=<id>, not an in-app Link
+  // click) `loading` starts true and `scheduled` starts empty, so `editing`
+  // would otherwise be null on the very first render — mounting the FRESH,
+  // blank ComposeLetter instead of the editing one. Because both branches
+  // render a ComposeLetter at the same JSX position, React would then reuse
+  // that already-mounted instance once `editing` resolves, rather than
+  // remounting it with the real content: useState only reads its initial
+  // value once. Blocking on `loading` here means the composer only ever
+  // mounts once `editing` is already resolved to its final value.
+  if (editId !== null && loading) {
+    return <p className="py-20 text-center font-ui text-sm text-ink-muted">Opening the letter…</p>
+  }
+
+  if (editId !== null && editing === null) {
     return (
       <div className="py-24 text-center">
         <p className="font-hand text-3xl text-ink-ui">That letter isn't there anymore</p>
@@ -27,6 +41,7 @@ export default function Compose() {
   if (editing !== null) {
     return (
       <ComposeLetter
+        key={editing.id}
         partnerName={partnerName}
         disabled={loading}
         initialMessage={editing.message}
@@ -47,6 +62,7 @@ export default function Compose() {
 
   return (
     <ComposeLetter
+      key="new"
       partnerName={partnerName}
       disabled={loading}
       onCancel={() => navigate('/')}

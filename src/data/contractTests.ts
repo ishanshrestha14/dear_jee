@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { BondRepository, LetterRepository, ProfileRepository } from './types'
 
 /** Everything a contract run needs from one repository implementation. */
@@ -762,6 +762,91 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
         const cancelled = scheduled!.find((l) => l.id === sent.data!.id)
         expect(cancelled).toBeDefined()
         expect(cancelled!.receiverDeletedAt).not.toBeNull()
+      })
+
+      it('a delivered scheduled letter can still be marked read and archived', async () => {
+        // Regression: a CHECK constraint re-validated on every update used to
+        // raise once scheduled_for was in the past, breaking markRead and
+        // setArchived on any letter that had already delivered. The rule now
+        // lives in the update trigger, gated to only fire when a client is
+        // actually changing scheduled_for — an unrelated column update on an
+        // already-delivered letter must succeed.
+        const today = daysFromNow(0)
+        const sent = await fx.letters.send({
+          senderId: fx.userId,
+          receiverId: fx.partnerId,
+          message: 'Arrived, and now just an ordinary letter.',
+          salutation: null,
+          bodyFont: null,
+          scheduledFor: today,
+        })
+        expect(sent.error).toBeNull()
+
+        const read = await fx.letters.markRead(sent.data!.id)
+        expect(read.error).toBeNull()
+        expect(read.data!.isRead).toBe(true)
+
+        const archived = await fx.letters.setArchived(sent.data!.id, fx.partnerId, true)
+        expect(archived.error).toBeNull()
+      })
+
+      it('a bond-cancelled letter keeps showing in listScheduled once its date passes', async () => {
+        // Regression: listScheduled used to filter on `scheduledFor > today`,
+        // so a bond-cancelled letter (receiverDeletedAt set, but never
+        // delivered) dropped off the list the moment its date arrived,
+        // resurfacing unlabelled among ordinary past letters instead. This
+        // needs the cancellation to happen while the date is still in the
+        // future (so unlink's own `scheduledFor > current_date` check fires
+        // and sets receiverDeletedAt) and THEN for time to pass the date —
+        // hence the fake clock, rather than a same-day scheduledFor.
+        vi.useFakeTimers()
+        try {
+          vi.setSystemTime(new Date('2026-06-01T00:00:00.000Z'))
+          const sent = await fx.letters.send({
+            senderId: fx.userId,
+            receiverId: fx.partnerId,
+            message: 'Cancelled, and its date will pass.',
+            salutation: null,
+            bodyFont: null,
+            scheduledFor: '2026-06-03',
+          })
+          await fx.bonds.unlink(fx.userId)
+
+          vi.setSystemTime(new Date('2026-06-10T00:00:00.000Z'))
+          const { data: scheduled } = await fx.letters.listScheduled(fx.userId)
+          const cancelled = scheduled!.find((l) => l.id === sent.data!.id)
+          expect(cancelled).toBeDefined()
+          expect(cancelled!.receiverDeletedAt).not.toBeNull()
+        } finally {
+          vi.useRealTimers()
+        }
+      })
+
+      it('editScheduled refuses a bond-cancelled letter even while nominally still pending', async () => {
+        // Regression: only ownership and delivery were enforced, not
+        // "the bond is still open" — a letter the bond-ending already
+        // cancelled (receiverDeletedAt set) was still rewritable through
+        // editScheduled as long as its date had not yet arrived.
+        const future = daysFromNow(7)
+        const sent = await fx.letters.send({
+          senderId: fx.userId,
+          receiverId: fx.partnerId,
+          message: 'Still pending by date, but the bond just ended.',
+          salutation: null,
+          bodyFont: null,
+          scheduledFor: future,
+        })
+        await fx.bonds.unlink(fx.userId)
+
+        const result = await fx.letters.editScheduled(
+          sent.data!.id,
+          fx.userId,
+          'Trying to rewrite a cancelled letter.',
+          null,
+          null,
+          future,
+        )
+        expect(result.error).toBe('A sent letter cannot be edited.')
       })
     })
 
