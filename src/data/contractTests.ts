@@ -61,6 +61,64 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
         const { data: after } = await fx.letters.listConversation(fx.userId)
         expect(after!.some((l) => l.id === target.id)).toBe(false)
       })
+
+      describe('pagination', () => {
+        it('limit caps the result to the newest N', async () => {
+          for (let i = 0; i < 5; i++) {
+            await fx.letters.send({
+              senderId: fx.userId,
+              receiverId: fx.partnerId,
+              message: `Letter number ${i}`,
+              salutation: null,
+              bodyFont: null,
+            })
+          }
+          const { data: all } = await fx.letters.listConversation(fx.userId)
+          const { data: capped } = await fx.letters.listConversation(fx.userId, { limit: 3 })
+          expect(capped!.length).toBe(3)
+          expect(capped!.map((l) => l.id)).toEqual(all!.slice(0, 3).map((l) => l.id))
+        })
+
+        it('olderThan + limit returns the next page with no overlap or gap', async () => {
+          for (let i = 0; i < 5; i++) {
+            await fx.letters.send({
+              senderId: fx.userId,
+              receiverId: fx.partnerId,
+              message: `Letter number ${i}`,
+              salutation: null,
+              bodyFont: null,
+            })
+          }
+          const { data: all } = await fx.letters.listConversation(fx.userId)
+          const { data: firstPage } = await fx.letters.listConversation(fx.userId, { limit: 3 })
+          const cursor = firstPage![firstPage!.length - 1]
+          const { data: secondPage } = await fx.letters.listConversation(fx.userId, {
+            olderThan: { createdAt: cursor.createdAt, id: cursor.id },
+            limit: 100,
+          })
+          expect([...firstPage!, ...secondPage!].map((l) => l.id)).toEqual(all!.map((l) => l.id))
+        })
+
+        it('newerThan returns only what arrived after the cursor, unbounded', async () => {
+          const { data: before } = await fx.letters.listConversation(fx.userId)
+          const cursor = before![0]
+          // A real delay, not a synthetic one: two sends in the same millisecond
+          // would make the outcome depend on the id tiebreak rather than on
+          // newerThan actually working, which is not what this test is for.
+          await new Promise((resolve) => setTimeout(resolve, 5))
+          const fresh = await fx.letters.send({
+            senderId: fx.partnerId,
+            receiverId: fx.userId,
+            message: 'One more, after the cursor.',
+            salutation: null,
+            bodyFont: null,
+          })
+          const { data: since } = await fx.letters.listConversation(fx.userId, {
+            newerThan: { createdAt: cursor.createdAt, id: cursor.id },
+          })
+          expect(since!.map((l) => l.id)).toEqual([fresh.data!.id])
+        })
+      })
     })
 
     describe('send', () => {

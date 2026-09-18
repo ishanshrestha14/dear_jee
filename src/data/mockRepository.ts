@@ -24,6 +24,20 @@ function hasArrived(scheduledFor: string): boolean {
   return Date.parse(scheduledFor) <= Date.now()
 }
 
+/**
+ * The canonical order for listConversation's pagination: newest first, ties
+ * on the same millisecond broken by id descending. This is the ONE order
+ * every cursor filter below has to agree with — using a different tiebreak
+ * for sorting than for cursoring is exactly how a page ends up with a
+ * duplicate or a gap at its seam. Negative means `a` sorts before `b` (is
+ * newer, or newer-tiebreaking).
+ */
+function compareNewestFirst(a: { createdAt: string; id: string }, b: { createdAt: string; id: string }): number {
+  const byTime = Date.parse(b.createdAt) - Date.parse(a.createdAt)
+  if (byTime !== 0) return byTime
+  return b.id > a.id ? 1 : b.id < a.id ? -1 : 0
+}
+
 interface MockOptions {
   /** Start with both profiles unlinked, to exercise the joining flow. */
   unlinked?: boolean
@@ -183,13 +197,13 @@ export function createMockRepositories(options: MockOptions = {}): {
       .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))
 
   const letterRepository: LetterRepository = {
-    async listConversation(userId) {
+    async listConversation(userId, options) {
       // Scoped to the OPEN bond. No bond means no current chapter, which is a
       // real and renderable state, not an error: an unbonded person's home is
       // empty and their held letters are in listHeld.
       const open = openBondFor(userId)
       if (open === undefined) return ok([])
-      const mine = letters
+      let mine = letters
         .filter(
           (l) =>
             l.bondId === open.id &&
@@ -197,7 +211,21 @@ export function createMockRepositories(options: MockOptions = {}): {
             !isArchivedBy(l, userId) &&
             !(l.senderId === userId && l.scheduledFor !== null && !hasArrived(l.scheduledFor)),
         )
-        .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+        .sort(compareNewestFirst)
+
+      // > 0 means `l` sorts AFTER the cursor — i.e. older.
+      if (options?.olderThan !== undefined) {
+        const cursor = options.olderThan
+        mine = mine.filter((l) => compareNewestFirst(l, cursor) > 0)
+      }
+      if (options?.newerThan !== undefined) {
+        const cursor = options.newerThan
+        mine = mine.filter((l) => compareNewestFirst(l, cursor) < 0)
+      }
+      if (options?.limit !== undefined) {
+        mine = mine.slice(0, options.limit)
+      }
+
       return ok(mine.map((l) => ({ ...l })))
     },
 
