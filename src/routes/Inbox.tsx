@@ -9,7 +9,7 @@ import { useLettersContext } from '../hooks/LettersProvider'
 import { useBonds } from '../hooks/useBonds'
 import { useAuth } from '../auth/useAuth'
 import { InviteLink } from '../components/InviteLink'
-import { formatLetterDate, snippet } from '../lib/format'
+import { cancelledByBondEnding, formatLetterDate, snippet } from '../lib/format'
 import type { Letter } from '../data/types'
 
 export default function Inbox() {
@@ -187,15 +187,19 @@ export default function Inbox() {
   )
 
   // A letter still waiting for its date, or one that will never arrive
-  // because its bond ended first — receiverDeletedAt is what tells the two
-  // apart, and it is only ever set on a scheduled letter by that bond-ending
-  // path (its receiver can never see it to delete it themselves).
+  // because its bond ended first. Both a bond-ending cancellation and an
+  // ordinary post-delivery deletion by the receiver set receiverDeletedAt,
+  // so a plain non-null check can't tell them apart — cancelledByBondEnding
+  // (src/lib/format.ts) compares its date against scheduledFor instead.
   const upcoming = scheduled.length > 0 && (
     <div className="mt-8 text-left">
       <h2 className="font-ui text-xs tracking-wide text-ink-muted">Scheduled · {scheduled.length}</h2>
       <ul className="mt-3 space-y-3">
         {scheduled.map((letter) => {
-          const cancelledByBondEnding = letter.receiverDeletedAt !== null
+          const isCancelledByBondEnding = cancelledByBondEnding(
+            letter.receiverDeletedAt,
+            letter.scheduledFor,
+          )
           const confirmingCancel = confirmingScheduledCancelId === letter.id
           return (
             <li
@@ -209,12 +213,12 @@ export default function Inbox() {
                 <span role="img" aria-label="Calendar">
                   📅
                 </span>
-                {cancelledByBondEnding
+                {isCancelledByBondEnding
                   ? 'Not delivered — bond ended'
                   : `Arrives ${formatLetterDate(letter.scheduledFor!)}`}
               </p>
               <div className="mt-3 flex items-center gap-4">
-                {!cancelledByBondEnding && (
+                {!isCancelledByBondEnding && (
                   <Link
                     to={`/compose?edit=${letter.id}`}
                     className="font-ui text-xs text-accent underline underline-offset-4"

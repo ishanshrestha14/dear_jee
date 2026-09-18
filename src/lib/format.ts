@@ -25,6 +25,32 @@ export function formatLetterTimestamp(iso: string): string {
 }
 
 /**
+ * True when a scheduled letter's `receiverDeletedAt` means "the bond ended
+ * before this could ever arrive," rather than "it arrived, and the receiver
+ * later deleted it normally." Both cases set `receiverDeletedAt` — that
+ * widening (see `listScheduled`) is what keeps a bond-cancelled letter
+ * visible in its sender's Scheduled section after its date has passed — so a
+ * plain non-null check can no longer tell them apart.
+ *
+ * The discriminator is timing: `unlink_partner` can only cancel a letter
+ * while it is still pending, i.e. while `scheduledFor > current_date` was
+ * still true, so that deletion always lands strictly before `scheduledFor`.
+ * An ordinary post-delivery deletion can only happen once the letter has
+ * actually delivered, i.e. once `scheduledFor <= current_date` was already
+ * true, so that deletion always lands on or after `scheduledFor`. Comparing
+ * the two as `YYYY-MM-DD` strings (`receiverDeletedAt` sliced to its date
+ * portion) sorts correctly, the same trick `validateScheduledFor` and
+ * `mockRepository`'s `today()` already rely on.
+ */
+export function cancelledByBondEnding(
+  receiverDeletedAt: string | null,
+  scheduledFor: string | null,
+): boolean {
+  if (receiverDeletedAt === null || scheduledFor === null) return false
+  return receiverDeletedAt.slice(0, 10) < scheduledFor
+}
+
+/**
  * Produces a single-line preview of a letter body, cut at a word boundary
  * so the inbox never shows a word sliced in half.
  */

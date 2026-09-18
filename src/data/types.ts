@@ -167,11 +167,16 @@ export interface LetterRepository {
   listChapter(userId: string, bondId: string): Promise<Result<Letter[]>>
   /**
    * The caller's own letters scheduled for a future date, newest first —
-   * including one whose bond has since ended and will never deliver.
-   * (Distinguish the two in the UI by checking `receiverDeletedAt`: null
-   * means still pending, non-null means the bond ended before it could
-   * arrive. A letter the caller cancelled themselves — `senderDeletedAt`
-   * set — never appears here at all.)
+   * including one whose bond has since ended and will never deliver, AND one
+   * that delivered normally and was later deleted by its receiver (both set
+   * `receiverDeletedAt`, so that alone does not distinguish them). Tell them
+   * apart in the UI by comparing `receiverDeletedAt`'s date against
+   * `scheduledFor`: `unlink_partner` can only cancel a letter while it is
+   * still pending, so a bond-ending deletion always lands before its
+   * `scheduledFor` date; an ordinary post-delivery deletion can only happen
+   * once `scheduledFor` has already passed, so it always lands on or after
+   * it. A letter the caller cancelled themselves — `senderDeletedAt` set —
+   * never appears here at all.
    */
   listScheduled(userId: string): Promise<Result<Letter[]>>
   /**
