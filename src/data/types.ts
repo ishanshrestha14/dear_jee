@@ -46,6 +46,13 @@ export interface Letter {
    * separate sent date — never a rewritten one.
    */
   sentAt: string | null
+  /**
+   * A future delivery date. Null means deliver now, which is what every
+   * letter has always done. While this is set to a date later than today,
+   * the letter is invisible to its receiver and its own sender may still
+   * rewrite it — the one exception to a sent letter's usual immutability.
+   */
+  scheduledFor: string | null
 }
 
 /** One relationship, open or ended. A chapter. */
@@ -101,6 +108,15 @@ export interface SendLetterInput {
   salutation: string | null
   /** Null leaves the default face. */
   bodyFont: BodyFont | null
+  /**
+   * Optional, unlike every field above — deliberately. Every existing call
+   * site (contractTests.ts has 21 of them) sends an ordinary letter and has
+   * no reason to name this at all; unlike `salutation` or `bodyFont`, an
+   * absent value has exactly one meaning (deliver now) with none of the
+   * undefined/null ambiguity the other fields are required to avoid.
+   * Implementations must treat a missing key the same as an explicit null.
+   */
+  scheduledFor?: string | null
 }
 
 export interface LetterRepository {
@@ -149,6 +165,29 @@ export interface LetterRepository {
   sendHeld(letterId: string, userId: string): Promise<Result<Letter>>
   /** One past chapter's letters, newest first. Read-only by construction. */
   listChapter(userId: string, bondId: string): Promise<Result<Letter[]>>
+  /**
+   * The caller's own letters scheduled for a future date, newest first —
+   * including one whose bond has since ended and will never deliver.
+   * (Distinguish the two in the UI by checking `receiverDeletedAt`: null
+   * means still pending, non-null means the bond ended before it could
+   * arrive. A letter the caller cancelled themselves — `senderDeletedAt`
+   * set — never appears here at all.)
+   */
+  listScheduled(userId: string): Promise<Result<Letter[]>>
+  /**
+   * Rewrites a pending scheduled letter: its words, its salutation, its
+   * face, or the date itself. Fails once the letter has delivered, once its
+   * bond has ended, or for anyone but its own sender — the same window
+   * `enforce_letter_update` enforces in the database.
+   */
+  editScheduled(
+    letterId: string,
+    userId: string,
+    message: string,
+    salutation: string | null,
+    bodyFont: BodyFont | null,
+    scheduledFor: string | null,
+  ): Promise<Result<Letter>>
 }
 
 export interface ProfileRepository {
