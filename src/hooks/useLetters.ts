@@ -314,6 +314,18 @@ export function useLetters(): UseLetters {
       mutating.current++
       try {
         const result = await letterRepository.setArchived(id, userId, next)
+        if (result.error === null && next) {
+          // Archiving hides the letter from the conversation list. load()'s
+          // post-boundary refresh only touches the prefix newer than the
+          // frozen boundary, so a letter in the already-loaded tail would
+          // otherwise stay visible forever — remove it locally instead of
+          // relying on load() to catch it.
+          setLetters((current) => {
+            const nextLetters = current.filter((l) => l.id !== id)
+            lettersRef.current = nextLetters
+            return nextLetters
+          })
+        }
         // The error is set AFTER the reload, not before: load() clears the error
         // whenever both fetches succeed, which would otherwise wipe this one
         // within a render of it being set.
@@ -332,6 +344,15 @@ export function useLetters(): UseLetters {
       mutating.current++
       try {
         const result = await letterRepository.deleteForMe(id, userId)
+        if (result.error === null) {
+          // Same reasoning as setArchivedFn above: a deleted letter in the
+          // frozen tail would otherwise never disappear locally.
+          setLetters((current) => {
+            const nextLetters = current.filter((l) => l.id !== id)
+            lettersRef.current = nextLetters
+            return nextLetters
+          })
+        }
         // The error is set AFTER the reload, not before: load() clears the error
         // whenever both fetches succeed, which would otherwise wipe this one
         // within a render of it being set.
