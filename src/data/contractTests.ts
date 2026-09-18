@@ -118,6 +118,48 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
           })
           expect(since!.map((l) => l.id)).toEqual([fresh.data!.id])
         })
+
+        it('pages consistently across letters sharing the exact same millisecond', async () => {
+          // The riskiest cross-implementation agreement in the pagination
+          // feature: the mock's id-descending tiebreak vs. Supabase's
+          // `order by created_at desc, id desc` + cursor. The `newerThan`
+          // test above explicitly sleeps to AVOID a tie; this one forces one.
+          vi.useFakeTimers()
+          try {
+            vi.setSystemTime(new Date('2026-03-01T12:00:00.000Z'))
+            const first = await fx.letters.send({
+              senderId: fx.userId,
+              receiverId: fx.partnerId,
+              message: 'Same millisecond, letter A',
+              salutation: null,
+              bodyFont: null,
+            })
+            const second = await fx.letters.send({
+              senderId: fx.userId,
+              receiverId: fx.partnerId,
+              message: 'Same millisecond, letter B',
+              salutation: null,
+              bodyFont: null,
+            })
+            expect(first.data!.createdAt).toBe(second.data!.createdAt)
+
+            const { data: all } = await fx.letters.listConversation(fx.userId)
+            const { data: firstPage } = await fx.letters.listConversation(fx.userId, {
+              limit: 1,
+            })
+            const cursor = firstPage![0]
+            const { data: rest } = await fx.letters.listConversation(fx.userId, {
+              olderThan: { createdAt: cursor.createdAt, id: cursor.id },
+              limit: 100,
+            })
+            // Order-agnostic on purpose: only that pagination and the
+            // unpaginated list agree, not which of the two colliding letters
+            // sorts first.
+            expect([...firstPage!, ...rest!].map((l) => l.id)).toEqual(all!.map((l) => l.id))
+          } finally {
+            vi.useRealTimers()
+          }
+        })
       })
     })
 

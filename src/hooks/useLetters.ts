@@ -19,7 +19,7 @@ export interface UseLetters {
   partnerName: string
   loading: boolean
   error: string | null
-  /** True once a fetch has come back short of PAGE_SIZE — no further page exists. */
+  /** True when the most recent first-page fetch came back a full PAGE_SIZE — there may be more. */
   hasMoreLetters: boolean
   /** True while a scroll-triggered page fetch is in flight. */
   loadingMore: boolean
@@ -91,6 +91,22 @@ export function useLetters(): UseLetters {
   // lettersRef above for why this can't just be the partnerId variable.
   const partnerIdRef = useRef<string | null>(null)
 
+  // True once the partnerId-watching effect below has run for the first
+  // time. Skipping that first run avoids a redundant duplicate load
+  // alongside the userId-change effect, which already loads on mount.
+  const partnerIdEffectRan = useRef(false)
+
+  // Clears every piece of pagination state back to "nothing loaded yet."
+  // Used whenever the current conversation's identity changes underneath
+  // the hook without userId changing — a bond forming, breaking, or
+  // reforming — since none of those remount LettersProvider.
+  const resetPagination = useCallback(() => {
+    pageBoundary.current = null
+    lettersRef.current = []
+    setHasMoreLetters(false)
+    setNewArrivals([])
+  }, [])
+
   const load = useCallback(async (id: string, options?: { silent?: boolean }) => {
     const silent = options?.silent ?? false
     // No boundary yet: this IS the first page, capped at PAGE_SIZE, same
@@ -158,10 +174,7 @@ export function useLetters(): UseLetters {
   useEffect(() => {
     if (userId === null) {
       setLetters([])
-      lettersRef.current = []
-      pageBoundary.current = null
-      setHasMoreLetters(false)
-      setNewArrivals([])
+      resetPagination()
       setArchived_([])
       setHeld([])
       setScheduled([])
@@ -172,8 +185,7 @@ export function useLetters(): UseLetters {
     // A fresh sign-in (or a switch between accounts) starts a fresh
     // pagination cycle — a boundary or a tail left over from a previous
     // user would otherwise be spliced onto the new one's letters.
-    pageBoundary.current = null
-    lettersRef.current = []
+    resetPagination()
 
     let cancelled = false
     setLoading(true)
@@ -187,15 +199,38 @@ export function useLetters(): UseLetters {
     return () => {
       cancelled = true
     }
-  }, [userId, authLoading, load])
+  }, [userId, authLoading, load, resetPagination])
 
   useEffect(() => {
     partnerIdRef.current = partnerId
   }, [partnerId])
 
+  // The bond itself can change without userId changing — useBonds.unlink()
+  // (and a later rejoin) updates profile.partnerId via refreshProfile()
+  // alone, and LettersProvider is never remounted for that. Without this,
+  // a frozen boundary from the old bond would either hide the fact that the
+  // conversation is now empty (load() asks for "newer than boundary" against
+  // an empty conversation and gets []), or, on rejoin, splice the new bond's
+  // letters onto the old bond's stale tail. Skips its own first run so it
+  // doesn't duplicate the load the userId-change effect already does on
+  // mount.
+  useEffect(() => {
+    if (!partnerIdEffectRan.current) {
+      partnerIdEffectRan.current = true
+      return
+    }
+    resetPagination()
+    if (userId !== null) void load(userId)
+  }, [partnerId, userId, load, resetPagination])
+
   const reload = useCallback(async () => {
-    if (userId !== null) await load(userId)
-  }, [userId, load])
+    if (userId === null) return
+    // A genuine full reload, matching the name: a frozen boundary would
+    // otherwise turn this into just a refresh of the newer-than-boundary
+    // prefix, same as load() alone.
+    resetPagination()
+    await load(userId)
+  }, [userId, load, resetPagination])
 
   const loadMoreLetters = useCallback(async () => {
     if (userId === null || !hasMoreLetters || loadingMore) return
@@ -203,13 +238,6 @@ export function useLetters(): UseLetters {
     if (last === undefined) return
     setLoadingMore(true)
     try {
-      // The first call freezes the boundary right here, at what was — until
-      // now — the last loaded letter. Every refresh from this point on
-      // refetches only what's newer than it; everything from here back was
-      // loaded once and is never touched again.
-      if (pageBoundary.current === null) {
-        pageBoundary.current = { createdAt: last.createdAt, id: last.id }
-      }
       const result = await letterRepository.listConversation(userId, {
         olderThan: { createdAt: last.createdAt, id: last.id },
         limit: PAGE_SIZE,
@@ -217,6 +245,15 @@ export function useLetters(): UseLetters {
       if (result.error !== null) {
         setError(result.error)
         return
+      }
+      // Frozen only now that the fetch is known to have succeeded — freezing
+      // it before the fetch would leave the hook stuck refreshing only the
+      // newer-than-boundary prefix even though this page never actually
+      // loaded. Every refresh from this point on refetches only what's newer
+      // than it; everything from here back was loaded once and is never
+      // touched again.
+      if (pageBoundary.current === null) {
+        pageBoundary.current = { createdAt: last.createdAt, id: last.id }
       }
       const next = [...lettersRef.current, ...result.data]
       lettersRef.current = next
@@ -287,21 +324,23 @@ export function useLetters(): UseLetters {
     mutating.current++
     try {
       // Optimistic: the dot disappears the instant the letter opens.
-      // lettersRef is updated alongside state — load()'s post-boundary
-      // refresh splices from the ref, and a stale ref would resurrect the
-      // unread dot on the next poll.
-      setLetters((current) => {
-        const next = current.map((l) => (l.id === id ? { ...l, isRead: true } : l))
-        lettersRef.current = next
-        return next
-      })
+      // lettersRef is updated synchronously, BEFORE setLetters, and never
+      // inside its updater — a functional setState updater is not
+      // guaranteed to run before the very next line, and load()'s
+      // Promise.all can resolve and read lettersRef before React flushes
+      // it, especially under the mock's zero network latency.
+      const optimistic = lettersRef.current.map((l) =>
+        l.id === id ? { ...l, isRead: true } : l,
+      )
+      lettersRef.current = optimistic
+      setLetters(optimistic)
       const result = await letterRepository.markRead(id)
       if (result.error !== null) {
-        setLetters((current) => {
-          const next = current.map((l) => (l.id === id ? { ...l, isRead: false } : l))
-          lettersRef.current = next
-          return next
-        })
+        const reverted = lettersRef.current.map((l) =>
+          l.id === id ? { ...l, isRead: false } : l,
+        )
+        lettersRef.current = reverted
+        setLetters(reverted)
       }
     } finally {
       mutating.current--
@@ -319,12 +358,18 @@ export function useLetters(): UseLetters {
           // post-boundary refresh only touches the prefix newer than the
           // frozen boundary, so a letter in the already-loaded tail would
           // otherwise stay visible forever — remove it locally instead of
-          // relying on load() to catch it.
-          setLetters((current) => {
-            const nextLetters = current.filter((l) => l.id !== id)
-            lettersRef.current = nextLetters
-            return nextLetters
-          })
+          // relying on load() to catch it. Written synchronously, not inside
+          // a setLetters updater — see markRead above for why.
+          const nextLetters = lettersRef.current.filter((l) => l.id !== id)
+          lettersRef.current = nextLetters
+          setLetters(nextLetters)
+        } else if (result.error === null && !next) {
+          // The mirror case: un-archiving surfaces an old letter back into
+          // the conversation. spliceConversation never touches the frozen
+          // tail, so there is no sensible position to splice it into
+          // locally — reset and let the next load() fetch a fresh first
+          // page instead.
+          resetPagination()
         }
         // The error is set AFTER the reload, not before: load() clears the error
         // whenever both fetches succeed, which would otherwise wipe this one
@@ -335,7 +380,7 @@ export function useLetters(): UseLetters {
         mutating.current--
       }
     },
-    [userId, load],
+    [userId, load, resetPagination],
   )
 
   const deleteForMe = useCallback<UseLetters['deleteForMe']>(
@@ -346,12 +391,12 @@ export function useLetters(): UseLetters {
         const result = await letterRepository.deleteForMe(id, userId)
         if (result.error === null) {
           // Same reasoning as setArchivedFn above: a deleted letter in the
-          // frozen tail would otherwise never disappear locally.
-          setLetters((current) => {
-            const nextLetters = current.filter((l) => l.id !== id)
-            lettersRef.current = nextLetters
-            return nextLetters
-          })
+          // frozen tail would otherwise never disappear locally. Written
+          // synchronously, not inside a setLetters updater — see markRead
+          // above for why.
+          const nextLetters = lettersRef.current.filter((l) => l.id !== id)
+          lettersRef.current = nextLetters
+          setLetters(nextLetters)
         }
         // The error is set AFTER the reload, not before: load() clears the error
         // whenever both fetches succeed, which would otherwise wipe this one

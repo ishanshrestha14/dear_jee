@@ -50,7 +50,8 @@ never shifts," no matter how many letters arrive above it.
 
 Before the first `loadMore` (i.e., fewer than 30 letters ever loaded, or the
 user hasn't scrolled), there is no boundary yet and the hook keeps today's
-behavior exactly: refetch everything, replace outright.
+behavior in shape only: refetch and replace outright, but capped at
+`limit: PAGE_SIZE`, not unlimited — see the Hook section below.
 
 **4. Cursor-based pagination, not offset.** `loadMore` fetches with
 `olderThan: <last loaded letter's (createdAt, id)>` and a `limit`. Offset
