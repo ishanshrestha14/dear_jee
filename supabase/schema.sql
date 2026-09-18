@@ -350,21 +350,49 @@ begin
        and lower_id = least(me.id, other.id)
        and upper_id = greatest(me.id, other.id);
 
-    -- A breakup moves the correspondence to both people's archives. Doing it
-    -- here rather than in the client means it is atomic: it cannot half-apply
+    -- A breakup moves the correspondence to both people's archives — but
+    -- NOT a letter that was scheduled for a future date and never
+    -- delivered. That one is excluded from every archive update below, and
+    -- cancelled separately just after: archiving would put it in the
+    -- sender's "Archived" list, where it would look like an ordinary
+    -- delivered letter instead of one that never arrived. Doing it here
+    -- rather than in the client means it is atomic: it cannot half-apply
     -- because someone closed a tab.
     update letters
        set sender_archived_at   = coalesce(sender_archived_at, now())
-     where sender_id = me.id and receiver_id = other.id;
+     where sender_id = me.id and receiver_id = other.id
+       and (scheduled_for is null or scheduled_for <= current_date);
     update letters
        set receiver_archived_at = coalesce(receiver_archived_at, now())
-     where receiver_id = me.id and sender_id = other.id;
+     where receiver_id = me.id and sender_id = other.id
+       and (scheduled_for is null or scheduled_for <= current_date);
     update letters
        set sender_archived_at   = coalesce(sender_archived_at, now())
-     where sender_id = other.id and receiver_id = me.id;
+     where sender_id = other.id and receiver_id = me.id
+       and (scheduled_for is null or scheduled_for <= current_date);
     update letters
        set receiver_archived_at = coalesce(receiver_archived_at, now())
-     where receiver_id = other.id and sender_id = me.id;
+     where receiver_id = other.id and sender_id = me.id
+       and (scheduled_for is null or scheduled_for <= current_date);
+
+    -- A letter scheduled for a future date, still pending, must never reach
+    -- a partner this bond no longer connects its sender to — even if the
+    -- same two people bond again later and the date passes. Reusing
+    -- receiver_deleted_at (rather than a new column) puts it behind the
+    -- exact same gate that already hides a letter from someone who deleted
+    -- it themselves. The sender's own side is untouched, so they keep
+    -- seeing it — the app labels a letter this way as "not delivered,
+    -- bond ended" by checking receiver_deleted_at on a letter only its
+    -- sender can see, a state otherwise unreachable since a sender never
+    -- sets the receiver's own delete flag any other way.
+    update letters
+       set receiver_deleted_at = coalesce(receiver_deleted_at, now())
+     where receiver_id = me.id and sender_id = other.id
+       and scheduled_for is not null and scheduled_for > current_date;
+    update letters
+       set receiver_deleted_at = coalesce(receiver_deleted_at, now())
+     where receiver_id = other.id and sender_id = me.id
+       and scheduled_for is not null and scheduled_for > current_date;
 
     -- Freeze both names as they are now. The UI resolves an author through a
     -- single partnerName that empties when partner_id goes null, so without
