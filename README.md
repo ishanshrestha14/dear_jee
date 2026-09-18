@@ -24,7 +24,7 @@ things that bite.
 | Command | Does |
 |---|---|
 | `npm run dev` | Dev server |
-| `npm test` | Vitest, 74 logic-level tests across 4 files |
+| `npm test` | Vitest, 86 logic-level tests across 4 files |
 | `npm run typecheck` | `tsc -b` — the real type gate |
 | `npm run build` | Typecheck plus production build |
 | `npm run lint` | oxlint |
@@ -408,6 +408,43 @@ widened return type — the function is dropped and recreated rather than
 `create or replace`d, because its return type changed. Both files are
 idempotent by inspection. Applying them to the live project is the owner's
 step and had not been run as of this record.
+
+## Phase 8 — Scheduled delivery *(complete, migration pending)*
+
+A letter can now be written for a date that hasn't arrived yet. `scheduled_for`
+is a nullable `date` column; null means deliver now, exactly what every
+letter already did. Delivery has no job or cron behind it at all — the
+recipient's existing RLS visibility rule gained one clause comparing the
+column against `current_date`, so a letter surfaces on whichever poll happens
+after midnight on its day, the same way delivery has always worked here.
+
+- **Editability is one narrow, sender-only exception**, not a general
+  reopening of "a sent letter cannot be edited." `enforce_letter_update` now
+  computes a single `sender_editing_pending` condition — true only for the
+  letter's own sender, only while its date is still in the future — and
+  every other actor, and every other column, remains exactly as immutable as
+  before.
+- **Column grants had to widen before any of this could work at all.**
+  `message`, `salutation` and `body_font` had never been grantable for
+  UPDATE, because nothing had ever been editable — a gap that would have
+  silently defeated the trigger regardless of how correct it was, the same
+  failure class already spent a long session on for an unrelated column.
+- **Canceling reuses `receiver_deleted_at` rather than inventing a new
+  state**, twice over: once for the sender's own voluntary cancel (the
+  existing per-letter delete, unchanged), and once for a bond ending before
+  delivery, where `unlink_partner` now sets it on the receiver's side only —
+  the sender keeps their own copy, labelled by the app as never having
+  arrived, and the recipient can never see it even if the same two people
+  bond again later and the date passes.
+- **The recipient's side needed no new code whatsoever.** The entire feature
+  lives in when a row becomes selectable and who may still edit it before
+  that point — the whole reason for gating this at the database layer
+  instead of teaching the client a new concept.
+
+**Migration status.** `supabase/schema.sql` and `supabase/policies.sql` carry
+the new column, its constraint, the trigger's editing exception, and the
+unlink cancellation step, and are idempotent by inspection. Applying them to
+the live project is the owner's step and had not been run as of this record.
 
 ---
 
