@@ -78,7 +78,7 @@ create policy letters_select_participant on letters
   using (
     (sender_id = auth.uid() and sender_deleted_at is null)
     or (receiver_id = auth.uid() and receiver_deleted_at is null
-        and (scheduled_for is null or scheduled_for <= current_date))
+        and (scheduled_for is null or scheduled_for <= now()))
   );
 
 -- Sender may share; receiver may mark read. RLS cannot restrict columns, so

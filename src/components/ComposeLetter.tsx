@@ -3,6 +3,12 @@ import { motion } from 'framer-motion'
 import { Send } from 'lucide-react'
 import { PaperTexture } from '../design/PaperTexture'
 import { fontStack, loadLetterFont } from '../design/letterFonts'
+import { DatePicker } from './DatePicker'
+import {
+  kathmanduDateTimeToUtcIso,
+  todayInKathmandu,
+  utcIsoToKathmanduParts,
+} from '../lib/format'
 import {
   BODY_FONTS,
   MAX_LETTER_LENGTH,
@@ -52,10 +58,15 @@ export function ComposeLetter({
   const [sending, setSending] = useState(false)
   const [confirmingCancel, setConfirmingCancel] = useState(false)
   // Pre-checked when editing an already-scheduled letter; off by default for
-  // a fresh letter, which is exactly today's "send now" behaviour.
+  // a fresh letter, which is exactly today's "send now" behaviour. The date
+  // and time are kept as separate Kathmandu wall-clock values — that's what
+  // the picker and the time input each edit — and combined into a UTC
+  // instant only at send time.
+  const initialParts = initialScheduledFor === null ? null : utcIsoToKathmanduParts(initialScheduledFor)
   const [scheduling, setScheduling] = useState(initialScheduledFor !== null)
-  const [scheduledFor, setScheduledFor] = useState(initialScheduledFor ?? '')
-  const todayIso = new Date().toISOString().slice(0, 10)
+  const [scheduledDate, setScheduledDate] = useState<string | null>(initialParts?.date ?? null)
+  const [scheduledTime, setScheduledTime] = useState(initialParts?.time ?? '09:00')
+  const todayKtm = todayInKathmandu()
 
   const words = message.trim() === '' ? 0 : message.trim().split(/\s+/).length
   const valid = validateLetter(message).ok
@@ -67,11 +78,14 @@ export function ComposeLetter({
       setError(validation.reason)
       return
     }
-    if (scheduling && scheduledFor === '') {
+    if (scheduling && scheduledDate === null) {
       setError('Choose a date for this letter to arrive.')
       return
     }
-    const chosenDate = scheduling && scheduledFor !== '' ? scheduledFor : null
+    const chosenDate =
+      scheduling && scheduledDate !== null
+        ? kathmanduDateTimeToUtcIso(scheduledDate, scheduledTime)
+        : null
     const dateCheck = validateScheduledFor(chosenDate)
     if (!dateCheck.ok) {
       setError(dateCheck.reason)
@@ -165,27 +179,32 @@ export function ComposeLetter({
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-paper-edge pt-4">
+        <div className="mt-4 border-t border-paper-edge pt-4">
           <label className="flex items-center gap-2 font-ui text-xs text-ink-muted">
             <input
               type="checkbox"
               checked={scheduling}
               onChange={(event) => {
                 setScheduling(event.target.checked)
-                if (!event.target.checked) setScheduledFor('')
+                if (!event.target.checked) setScheduledDate(null)
               }}
             />
             Schedule for later
           </label>
           {scheduling && (
-            <input
-              type="date"
-              value={scheduledFor}
-              min={todayIso}
-              onChange={(event) => setScheduledFor(event.target.value)}
-              aria-label="Deliver on"
-              className="rounded-full border border-paper-edge bg-transparent px-3 py-1.5 font-ui text-xs text-ink-ui focus:border-accent focus:outline-none"
-            />
+            <div className="mt-3 flex flex-wrap items-start gap-3">
+              <DatePicker value={scheduledDate} min={todayKtm} onChange={setScheduledDate} />
+              <div className="flex items-center gap-2">
+                <input
+                  type="time"
+                  value={scheduledTime}
+                  onChange={(event) => setScheduledTime(event.target.value)}
+                  aria-label="Deliver at"
+                  className="rounded-full border border-paper-edge bg-transparent px-3 py-1.5 font-ui text-xs text-ink-ui focus:border-accent focus:outline-none"
+                />
+                <span className="font-ui text-xs text-ink-muted">Nepal time</span>
+              </div>
+            </div>
           )}
         </div>
 

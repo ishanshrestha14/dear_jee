@@ -83,21 +83,21 @@ describe('validateScheduledFor', () => {
     expect(validateScheduledFor(null)).toEqual({ ok: true })
   })
 
-  it('accepts today', () => {
-    const today = new Date().toISOString().slice(0, 10)
-    expect(validateScheduledFor(today)).toEqual({ ok: true })
+  it('accepts a moment a minute from now', () => {
+    const soon = new Date(Date.now() + 60 * 1000).toISOString()
+    expect(validateScheduledFor(soon)).toEqual({ ok: true })
   })
 
-  it('accepts a future date', () => {
-    const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  it('accepts a future instant', () => {
+    const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
     expect(validateScheduledFor(future)).toEqual({ ok: true })
   })
 
-  it('rejects a past date', () => {
-    const past = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  it('rejects a past instant', () => {
+    const past = new Date(Date.now() - 60 * 1000).toISOString()
     expect(validateScheduledFor(past)).toEqual({
       ok: false,
-      reason: 'That date has already passed.',
+      reason: 'That time has already passed.',
     })
   })
 })

@@ -1,5 +1,12 @@
-import { describe, it, expect } from 'vitest'
-import { cancelledByBondEnding, formatLetterDate, snippet } from './format'
+import { describe, it, expect, vi } from 'vitest'
+import {
+  cancelledByBondEnding,
+  formatLetterDate,
+  kathmanduDateTimeToUtcIso,
+  snippet,
+  todayInKathmandu,
+  utcIsoToKathmanduParts,
+} from './format'
 
 describe('formatLetterDate', () => {
   it('renders a warm long-form date', () => {
@@ -26,6 +33,54 @@ describe('cancelledByBondEnding', () => {
 
   it('is false for a non-scheduled letter (scheduledFor null) even if receiverDeletedAt is set', () => {
     expect(cancelledByBondEnding('2026-09-20T14:30:00.000Z', null)).toBe(false)
+  })
+})
+
+describe('todayInKathmandu', () => {
+  it('is a day ahead of UTC late in the UTC evening', () => {
+    // 22:00 UTC is 03:45 the next day in Kathmandu (UTC+5:45) — the exact
+    // window plain `new Date().toISOString().slice(0, 10)` gets wrong.
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-09-18T22:00:00.000Z'))
+      expect(todayInKathmandu()).toBe('2026-09-19')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('matches UTC\'s date during the shared morning hours', () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-09-18T10:00:00.000Z'))
+      expect(todayInKathmandu()).toBe('2026-09-18')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('kathmanduDateTimeToUtcIso', () => {
+  it('converts a Kathmandu morning to the correct UTC instant', () => {
+    // 09:00 in Kathmandu (UTC+5:45) is 03:15 UTC the same day.
+    expect(kathmanduDateTimeToUtcIso('2026-09-25', '09:00')).toBe('2026-09-25T03:15:00.000Z')
+  })
+
+  it('rolls over to the previous UTC day when Kathmandu time is early enough', () => {
+    // 02:00 in Kathmandu is 20:15 UTC the day before.
+    expect(kathmanduDateTimeToUtcIso('2026-09-25', '02:00')).toBe('2026-09-24T20:15:00.000Z')
+  })
+})
+
+describe('utcIsoToKathmanduParts', () => {
+  it('is the exact inverse of kathmanduDateTimeToUtcIso', () => {
+    const utc = kathmanduDateTimeToUtcIso('2026-09-25', '09:00')
+    expect(utcIsoToKathmanduParts(utc)).toEqual({ date: '2026-09-25', time: '09:00' })
+  })
+
+  it('recovers the pre-midnight-rollover case too', () => {
+    const utc = kathmanduDateTimeToUtcIso('2026-09-25', '02:00')
+    expect(utcIsoToKathmanduParts(utc)).toEqual({ date: '2026-09-25', time: '02:00' })
   })
 })
 

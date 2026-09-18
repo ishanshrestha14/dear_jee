@@ -19,9 +19,9 @@ export const MOCK_BOND_ID = 'bond-seed'
 const ok = <T>(data: T): Result<T> => ({ data, error: null })
 const fail = <T>(error: string): Result<T> => ({ data: null, error })
 
-/** Today as `YYYY-MM-DD`, comparable directly against `scheduledFor`. */
-function today(): string {
-  return new Date().toISOString().slice(0, 10)
+/** True once a scheduled instant has arrived. */
+function hasArrived(scheduledFor: string): boolean {
+  return Date.parse(scheduledFor) <= Date.now()
 }
 
 interface MockOptions {
@@ -146,7 +146,7 @@ function seedLetters(): Letter[] {
 function visibleTo(l: Letter, userId: string): boolean {
   if (l.senderId === userId) return l.senderDeletedAt === null
   if (l.receiverId === userId) {
-    return l.receiverDeletedAt === null && (l.scheduledFor === null || l.scheduledFor <= today())
+    return l.receiverDeletedAt === null && (l.scheduledFor === null || hasArrived(l.scheduledFor))
   }
   return false
 }
@@ -195,7 +195,7 @@ export function createMockRepositories(options: MockOptions = {}): {
             l.bondId === open.id &&
             visibleTo(l, userId) &&
             !isArchivedBy(l, userId) &&
-            !(l.senderId === userId && l.scheduledFor !== null && l.scheduledFor > today()),
+            !(l.senderId === userId && l.scheduledFor !== null && !hasArrived(l.scheduledFor)),
         )
         .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
       return ok(mine.map((l) => ({ ...l })))
@@ -210,7 +210,7 @@ export function createMockRepositories(options: MockOptions = {}): {
             l.bondId === open.id &&
             visibleTo(l, userId) &&
             isArchivedBy(l, userId) &&
-            !(l.senderId === userId && l.scheduledFor !== null && l.scheduledFor > today()),
+            !(l.senderId === userId && l.scheduledFor !== null && !hasArrived(l.scheduledFor)),
         )
         .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
       return ok(mine.map((l) => ({ ...l })))
@@ -254,7 +254,7 @@ export function createMockRepositories(options: MockOptions = {}): {
             l.senderId === userId &&
             l.senderDeletedAt === null &&
             l.scheduledFor !== null &&
-            (l.scheduledFor > today() || l.receiverDeletedAt !== null),
+            (!hasArrived(l.scheduledFor) || l.receiverDeletedAt !== null),
         )
         .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
       return ok(mine.map((l) => ({ ...l })))
@@ -270,7 +270,7 @@ export function createMockRepositories(options: MockOptions = {}): {
       if (
         letter.senderId !== userId ||
         letter.scheduledFor === null ||
-        letter.scheduledFor <= today() ||
+        hasArrived(letter.scheduledFor) ||
         letter.receiverDeletedAt !== null
       ) {
         return fail('A sent letter cannot be edited.')
@@ -418,7 +418,7 @@ export function createMockRepositories(options: MockOptions = {}): {
           l.isPublic &&
           l.senderDeletedAt === null &&
           l.receiverDeletedAt === null &&
-          (l.scheduledFor === null || l.scheduledFor <= today()),
+          (l.scheduledFor === null || hasArrived(l.scheduledFor)),
       )
       if (!letter) return fail('This letter is not available.')
       const view: PublicLetter = {
@@ -542,7 +542,7 @@ export function createMockRepositories(options: MockOptions = {}): {
         // already uses — the sender keeps their own copy, and the app
         // tells the two states apart by checking receiverDeletedAt on a
         // letter only its sender can see.
-        if (letter.scheduledFor !== null && letter.scheduledFor > today()) {
+        if (letter.scheduledFor !== null && !hasArrived(letter.scheduledFor)) {
           letter.receiverDeletedAt ??= at
           continue
         }

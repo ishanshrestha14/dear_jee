@@ -615,7 +615,10 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
 
     describe('scheduled delivery', () => {
       function daysFromNow(n: number): string {
-        return new Date(Date.now() + n * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+        return new Date(Date.now() + n * 24 * 60 * 60 * 1000).toISOString()
+      }
+      function minutesFromNow(n: number): string {
+        return new Date(Date.now() + n * 60 * 1000).toISOString()
       }
 
       it('is invisible to the receiver before its date', async () => {
@@ -639,17 +642,30 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
       })
 
       it('appears to the receiver once its date arrives', async () => {
-        const today = daysFromNow(0)
-        const sent = await fx.letters.send({
-          senderId: fx.userId,
-          receiverId: fx.partnerId,
-          message: 'Arriving today.',
-          salutation: null,
-          bodyFont: null,
-          scheduledFor: today,
-        })
-        const { data } = await fx.letters.listConversation(fx.partnerId)
-        expect(data!.some((l) => l.id === sent.data!.id)).toBe(true)
+        // Scheduling for a moment already in the past is refused (validated,
+        // correctly) — so this schedules a moment slightly in the future,
+        // then advances the clock past it, rather than trying to construct
+        // an instant that is simultaneously "not in the past" and "already
+        // arrived."
+        vi.useFakeTimers()
+        try {
+          vi.setSystemTime(new Date('2026-06-01T00:00:00.000Z'))
+          const sent = await fx.letters.send({
+            senderId: fx.userId,
+            receiverId: fx.partnerId,
+            message: 'Arriving today.',
+            salutation: null,
+            bodyFont: null,
+            scheduledFor: minutesFromNow(1),
+          })
+          expect(sent.error).toBeNull()
+
+          vi.setSystemTime(new Date('2026-06-01T00:02:00.000Z'))
+          const { data } = await fx.letters.listConversation(fx.partnerId)
+          expect(data!.some((l) => l.id === sent.data!.id)).toBe(true)
+        } finally {
+          vi.useRealTimers()
+        }
       })
 
       it('is excluded from the sender\'s own listConversation while pending', async () => {
@@ -771,23 +787,29 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
         // lives in the update trigger, gated to only fire when a client is
         // actually changing scheduled_for — an unrelated column update on an
         // already-delivered letter must succeed.
-        const today = daysFromNow(0)
-        const sent = await fx.letters.send({
-          senderId: fx.userId,
-          receiverId: fx.partnerId,
-          message: 'Arrived, and now just an ordinary letter.',
-          salutation: null,
-          bodyFont: null,
-          scheduledFor: today,
-        })
-        expect(sent.error).toBeNull()
+        vi.useFakeTimers()
+        try {
+          vi.setSystemTime(new Date('2026-06-01T00:00:00.000Z'))
+          const sent = await fx.letters.send({
+            senderId: fx.userId,
+            receiverId: fx.partnerId,
+            message: 'Arrived, and now just an ordinary letter.',
+            salutation: null,
+            bodyFont: null,
+            scheduledFor: minutesFromNow(1),
+          })
+          expect(sent.error).toBeNull()
 
-        const read = await fx.letters.markRead(sent.data!.id)
-        expect(read.error).toBeNull()
-        expect(read.data!.isRead).toBe(true)
+          vi.setSystemTime(new Date('2026-06-01T00:02:00.000Z'))
+          const read = await fx.letters.markRead(sent.data!.id)
+          expect(read.error).toBeNull()
+          expect(read.data!.isRead).toBe(true)
 
-        const archived = await fx.letters.setArchived(sent.data!.id, fx.partnerId, true)
-        expect(archived.error).toBeNull()
+          const archived = await fx.letters.setArchived(sent.data!.id, fx.partnerId, true)
+          expect(archived.error).toBeNull()
+        } finally {
+          vi.useRealTimers()
+        }
       })
 
       it('a bond-cancelled letter keeps showing in listScheduled once its date passes', async () => {

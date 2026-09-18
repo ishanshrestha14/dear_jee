@@ -9,7 +9,7 @@ import { useLettersContext } from '../hooks/LettersProvider'
 import { useBonds } from '../hooks/useBonds'
 import { useAuth } from '../auth/useAuth'
 import { InviteLink } from '../components/InviteLink'
-import { cancelledByBondEnding, formatLetterDate, snippet } from '../lib/format'
+import { cancelledByBondEnding, formatLetterDate, formatLetterTimestamp, snippet } from '../lib/format'
 import type { Letter } from '../data/types'
 
 export default function Inbox() {
@@ -215,7 +215,7 @@ export default function Inbox() {
                 </span>
                 {isCancelledByBondEnding
                   ? 'Not delivered — bond ended'
-                  : `Arrives ${formatLetterDate(letter.scheduledFor!)}`}
+                  : `Arrives ${formatLetterTimestamp(letter.scheduledFor!)}`}
               </p>
               <div className="mt-3 flex items-center gap-4">
                 {!isCancelledByBondEnding && (

@@ -99,7 +99,7 @@ function letterErrorMessage(raw: string): string {
   if (raw.includes('NO_BOND')) return 'You are not connected to anyone yet.'
   if (raw.includes('NOT_YOUR_SIDE')) return 'That is not yours to change.'
   if (raw.includes('IMMUTABLE_COLUMN')) return 'A sent letter cannot be edited.'
-  if (raw.includes('SCHEDULED_FOR_PAST')) return 'That date has already passed.'
+  if (raw.includes('SCHEDULED_FOR_PAST')) return 'That time has already passed.'
   if (raw.includes('ONLY_RECEIVER_MAY_READ')) return 'Only the person it was written to can open it.'
   if (raw.includes('new row violates')) return 'You are not connected to anyone yet.'
   if (raw.includes('row-level security')) return 'You do not have access to that letter.'
@@ -226,12 +226,12 @@ export function createSupabaseRepositories(): {
           .order('created_at', { ascending: false })
         if (error) return fail(letterErrorMessage(error.message))
         const rows = (data as LetterRow[]).map(toLetter)
-        const today = new Date().toISOString().slice(0, 10)
+        const now = Date.now()
         return ok(
           rows.filter(
             (l) =>
               !archivedBy(l, userId) &&
-              !(l.senderId === userId && l.scheduledFor !== null && l.scheduledFor > today),
+              !(l.senderId === userId && l.scheduledFor !== null && Date.parse(l.scheduledFor) > now),
           ),
         )
       })
@@ -250,12 +250,12 @@ export function createSupabaseRepositories(): {
           .order('created_at', { ascending: false })
         if (error) return fail(letterErrorMessage(error.message))
         const rows = (data as LetterRow[]).map(toLetter)
-        const today = new Date().toISOString().slice(0, 10)
+        const now = Date.now()
         return ok(
           rows.filter(
             (l) =>
               archivedBy(l, userId) &&
-              !(l.senderId === userId && l.scheduledFor !== null && l.scheduledFor > today),
+              !(l.senderId === userId && l.scheduledFor !== null && Date.parse(l.scheduledFor) > now),
           ),
         )
       })
@@ -472,17 +472,17 @@ export function createSupabaseRepositories(): {
 
     async listScheduled(userId) {
       return guard(async () => {
-        const today = new Date().toISOString().slice(0, 10)
-        // Still in its pending-date window, OR cancelled by a bond ending
+        const now = new Date().toISOString()
+        // Still in its pending window, OR cancelled by a bond ending
         // (receiver_deleted_at set) — either way it never reached, or will
         // never reach, the receiver, so it stays listed here rather than
-        // dropping out unlabelled once its date passes.
+        // dropping out unlabelled once its moment passes.
         const { data, error } = await db
           .from('letters')
           .select('*')
           .eq('sender_id', userId)
           .not('scheduled_for', 'is', null)
-          .or(`scheduled_for.gt.${today},receiver_deleted_at.not.is.null`)
+          .or(`scheduled_for.gt.${now},receiver_deleted_at.not.is.null`)
           .order('created_at', { ascending: false })
         if (error) return fail(letterErrorMessage(error.message))
         return ok((data as LetterRow[]).map(toLetter))

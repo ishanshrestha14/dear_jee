@@ -59,19 +59,29 @@ alter table letters add  constraint letters_salutation_length
   check (salutation is null or char_length(salutation) between 1 and 60);
 
 -- Nullable; null means "deliver now" — exactly what every letter has always
--- done. A DATE, not a timestamp: a real mailed letter arrives on a day, not
--- a minute, which keeps the composer to one field and avoids a timezone
--- decision entirely.
-alter table letters add column if not exists scheduled_for date;
+-- done. A real timestamp, not just a date: the composer picks a day AND a
+-- time, entered as a Kathmandu wall-clock moment (the app's one shared
+-- clock, per format.ts) and stored as the equivalent instant. Nepal Time
+-- has no daylight saving, so that conversion is a fixed +5:45 offset —
+-- no timezone library needed anywhere this value is produced or compared.
+alter table letters add column if not exists scheduled_for timestamptz;
+
+-- Idempotent even when the column already exists as timestamptz (an
+-- ALTER COLUMN TYPE to the same type is a harmless no-op re-write, not an
+-- error) — this covers the live column that was originally added as a
+-- plain `date` before time-of-day support existed. `date::timestamptz`
+-- reads an old bare date as midnight UTC, which is an acceptable landing
+-- spot for the handful of rows written before this change.
+alter table letters alter column scheduled_for type timestamptz using scheduled_for::timestamptz;
 
 -- NOT a CHECK constraint. Postgres re-validates every CHECK against the new
 -- tuple on EVERY update, regardless of which columns changed — there is no
 -- skip-if-column-unchanged optimisation for CHECKs (that only exists for
--- foreign keys). A constraint here would mean that the day after a
+-- foreign keys). A constraint here would mean that the moment after a
 -- scheduled letter delivers, ANY unrelated update to that row (markRead,
 -- archive, delete, unlink_partner's own archiving of past scheduled
--- letters) re-evaluates `scheduled_for >= current_date` against the now-past
--- date and fails the whole statement. The rule instead lives in
+-- letters) re-evaluates `scheduled_for >= now()` against the now-past
+-- instant and fails the whole statement. The rule instead lives in
 -- enforce_letter_update below, gated so it only fires when a client is
 -- actually changing scheduled_for.
 alter table letters drop constraint if exists letters_scheduled_for_not_past;
@@ -363,19 +373,19 @@ begin
     update letters
        set sender_archived_at   = coalesce(sender_archived_at, now())
      where sender_id = me.id and receiver_id = other.id
-       and (scheduled_for is null or scheduled_for <= current_date);
+       and (scheduled_for is null or scheduled_for <= now());
     update letters
        set receiver_archived_at = coalesce(receiver_archived_at, now())
      where receiver_id = me.id and sender_id = other.id
-       and (scheduled_for is null or scheduled_for <= current_date);
+       and (scheduled_for is null or scheduled_for <= now());
     update letters
        set sender_archived_at   = coalesce(sender_archived_at, now())
      where sender_id = other.id and receiver_id = me.id
-       and (scheduled_for is null or scheduled_for <= current_date);
+       and (scheduled_for is null or scheduled_for <= now());
     update letters
        set receiver_archived_at = coalesce(receiver_archived_at, now())
      where receiver_id = other.id and sender_id = me.id
-       and (scheduled_for is null or scheduled_for <= current_date);
+       and (scheduled_for is null or scheduled_for <= now());
 
     -- A letter scheduled for a future date, still pending, must never reach
     -- a partner this bond no longer connects its sender to — even if the
@@ -390,11 +400,11 @@ begin
     update letters
        set receiver_deleted_at = coalesce(receiver_deleted_at, now())
      where receiver_id = me.id and sender_id = other.id
-       and scheduled_for is not null and scheduled_for > current_date;
+       and scheduled_for is not null and scheduled_for > now();
     update letters
        set receiver_deleted_at = coalesce(receiver_deleted_at, now())
      where receiver_id = other.id and sender_id = me.id
-       and scheduled_for is not null and scheduled_for > current_date;
+       and scheduled_for is not null and scheduled_for > now();
 
     -- Freeze both names as they are now. The UI resolves an author through a
     -- single partnerName that empties when partner_id goes null, so without
@@ -616,7 +626,7 @@ as $$
     -- date gate in letters_select_participant does not protect this
     -- function on its own — a pending scheduled letter must not be
     -- shareable before its date just because its slug leaked early.
-    and (l.scheduled_for is null or l.scheduled_for <= current_date)
+    and (l.scheduled_for is null or l.scheduled_for <= now())
 $$;
 
 revoke all on function get_public_letter(text) from public;
@@ -663,7 +673,7 @@ declare
   -- exception instead of closing it.
   sender_editing_pending boolean := current_user = 'authenticated'
     and old.scheduled_for is not null
-    and old.scheduled_for > current_date
+    and old.scheduled_for > now()
     -- A letter whose bond has ended will never deliver — receiver_deleted_at
     -- is what unlink_partner sets on exactly that letter. Rewriting words
     -- nobody will ever read gains nothing, so this closes the editing window
@@ -697,7 +707,7 @@ begin
   -- constraint used to live, above the scheduled_for column).
   if new.scheduled_for is distinct from old.scheduled_for
      and new.scheduled_for is not null
-     and new.scheduled_for < current_date then
+     and new.scheduled_for < now() then
     raise exception 'SCHEDULED_FOR_PAST';
   end if;
 

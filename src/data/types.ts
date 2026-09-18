@@ -47,10 +47,13 @@ export interface Letter {
    */
   sentAt: string | null
   /**
-   * A future delivery date. Null means deliver now, which is what every
-   * letter has always done. While this is set to a date later than today,
-   * the letter is invisible to its receiver and its own sender may still
-   * rewrite it — the one exception to a sent letter's usual immutability.
+   * A future delivery instant (ISO timestamp). Null means deliver now, which
+   * is what every letter has always done. While this is set to a moment
+   * later than now, the letter is invisible to its receiver and its own
+   * sender may still rewrite it — the one exception to a sent letter's usual
+   * immutability. Chosen in the composer as a Kathmandu wall-clock date and
+   * time, converted to this UTC instant before it's ever sent to a
+   * repository — see `kathmanduDateTimeToUtcIso` in `src/lib/format.ts`.
    */
   scheduledFor: string | null
 }
@@ -166,17 +169,17 @@ export interface LetterRepository {
   /** One past chapter's letters, newest first. Read-only by construction. */
   listChapter(userId: string, bondId: string): Promise<Result<Letter[]>>
   /**
-   * The caller's own letters scheduled for a future date, newest first —
+   * The caller's own letters scheduled for a future instant, newest first —
    * including one whose bond has since ended and will never deliver, AND one
    * that delivered normally and was later deleted by its receiver (both set
    * `receiverDeletedAt`, so that alone does not distinguish them). Tell them
-   * apart in the UI by comparing `receiverDeletedAt`'s date against
-   * `scheduledFor`: `unlink_partner` can only cancel a letter while it is
-   * still pending, so a bond-ending deletion always lands before its
-   * `scheduledFor` date; an ordinary post-delivery deletion can only happen
-   * once `scheduledFor` has already passed, so it always lands on or after
-   * it. A letter the caller cancelled themselves — `senderDeletedAt` set —
-   * never appears here at all.
+   * apart in the UI by comparing `receiverDeletedAt` against `scheduledFor`
+   * (see `cancelledByBondEnding` in `src/lib/format.ts`): `unlink_partner`
+   * can only cancel a letter while it is still pending, so a bond-ending
+   * deletion always lands before its `scheduledFor` instant; an ordinary
+   * post-delivery deletion can only happen once `scheduledFor` has already
+   * passed, so it always lands on or after it. A letter the caller cancelled
+   * themselves — `senderDeletedAt` set — never appears here at all.
    */
   listScheduled(userId: string): Promise<Result<Letter[]>>
   /**
