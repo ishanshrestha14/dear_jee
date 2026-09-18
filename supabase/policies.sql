@@ -77,7 +77,8 @@ create policy letters_select_participant on letters
   for select to authenticated
   using (
     (sender_id = auth.uid() and sender_deleted_at is null)
-    or (receiver_id = auth.uid() and receiver_deleted_at is null)
+    or (receiver_id = auth.uid() and receiver_deleted_at is null
+        and (scheduled_for is null or scheduled_for <= current_date))
   );
 
 -- Sender may share; receiver may mark read. RLS cannot restrict columns, so
@@ -98,7 +99,8 @@ create policy letters_update_participant on letters
 revoke update on letters from authenticated;
 grant update (is_read, is_public, share_slug,
               sender_archived_at, receiver_archived_at,
-              sender_deleted_at, receiver_deleted_at)
+              sender_deleted_at, receiver_deleted_at,
+              message, salutation, body_font, scheduled_for)
   on letters to authenticated;
 
 -- Column grants are checked BEFORE RLS. The UPDATE path has been locked down
@@ -111,5 +113,5 @@ revoke insert on letters from authenticated;
 -- they write, and enforce_letter_update makes them immutable afterwards. The
 -- grant is what allows setting them at all; the trigger is what stops them
 -- changing later.
-grant insert (sender_id, receiver_id, message, salutation, body_font)
+grant insert (sender_id, receiver_id, message, salutation, body_font, scheduled_for)
   on letters to authenticated;
