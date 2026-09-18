@@ -9,6 +9,8 @@ export interface UseLetters {
   letters: Letter[]
   archived: Letter[]
   held: Letter[]
+  /** The caller's own pending or bond-cancelled scheduled letters. */
+  scheduled: Letter[]
   hasBond: boolean
   partnerName: string
   loading: boolean
@@ -17,12 +19,20 @@ export interface UseLetters {
     message: string,
     salutation: string | null,
     bodyFont: BodyFont | null,
+    scheduledFor: string | null,
   ): Promise<{ ok: boolean; error?: string }>
   sendHeld(id: string): Promise<{ ok: boolean; error?: string }>
   markRead(id: string): Promise<void>
   setArchived(id: string, archived: boolean): Promise<void>
   deleteForMe(id: string): Promise<void>
   setShared(id: string, shared: boolean): Promise<{ ok: boolean; error?: string }>
+  editScheduled(
+    id: string,
+    message: string,
+    salutation: string | null,
+    bodyFont: BodyFont | null,
+    scheduledFor: string | null,
+  ): Promise<{ ok: boolean; error?: string }>
   reload(): Promise<void>
 }
 
@@ -37,6 +47,7 @@ export function useLetters(): UseLetters {
   const [letters, setLetters] = useState<Letter[]>([])
   const [archived, setArchived_] = useState<Letter[]>([])
   const [held, setHeld] = useState<Letter[]>([])
+  const [scheduled, setScheduled] = useState<Letter[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -48,10 +59,11 @@ export function useLetters(): UseLetters {
 
   const load = useCallback(async (id: string, options?: { silent?: boolean }) => {
     const silent = options?.silent ?? false
-    const [conversation, archive, heldLetters] = await Promise.all([
+    const [conversation, archive, heldLetters, scheduledLetters] = await Promise.all([
       letterRepository.listConversation(id),
       letterRepository.listArchived(id),
       letterRepository.listHeld(id),
+      letterRepository.listScheduled(id),
     ])
     // All three failures must surface. Swallowing one would leave the
     // previous list on screen looking correct, and setArchived/deleteForMe
@@ -74,7 +86,17 @@ export function useLetters(): UseLetters {
       if (!silent) setError(heldLetters.error)
     } else setHeld(heldLetters.data)
 
-    if (!silent && conversation.error === null && archive.error === null && heldLetters.error === null) {
+    if (scheduledLetters.error !== null) {
+      if (!silent) setError(scheduledLetters.error)
+    } else setScheduled(scheduledLetters.data)
+
+    if (
+      !silent &&
+      conversation.error === null &&
+      archive.error === null &&
+      heldLetters.error === null &&
+      scheduledLetters.error === null
+    ) {
       setError(null)
     }
   }, [])
@@ -84,6 +106,7 @@ export function useLetters(): UseLetters {
       setLetters([])
       setArchived_([])
       setHeld([])
+      setScheduled([])
       setLoading(authLoading)
       return
     }
@@ -124,7 +147,7 @@ export function useLetters(): UseLetters {
   usePoll(poll, POLL_INTERVAL_MS)
 
   const sendLetter = useCallback<UseLetters['sendLetter']>(
-    async (message, salutation, bodyFont) => {
+    async (message, salutation, bodyFont, scheduledFor) => {
       if (userId === null) return { ok: false, error: 'You are not signed in.' }
       // An unbonded author writes a HELD letter — receiverId null — rather
       // than being refused. The repository and the insert policy both enforce
@@ -135,6 +158,7 @@ export function useLetters(): UseLetters {
         message,
         salutation,
         bodyFont,
+        scheduledFor,
       })
       if (result.error !== null) return { ok: false, error: result.error }
       await load(userId)
@@ -231,10 +255,34 @@ export function useLetters(): UseLetters {
     [userId, load],
   )
 
+  const editScheduledFn = useCallback<UseLetters['editScheduled']>(
+    async (id, message, salutation, bodyFont, scheduledFor) => {
+      if (userId === null) return { ok: false, error: 'You are not signed in.' }
+      mutating.current++
+      try {
+        const result = await letterRepository.editScheduled(
+          id,
+          userId,
+          message,
+          salutation,
+          bodyFont,
+          scheduledFor,
+        )
+        if (result.error !== null) return { ok: false, error: result.error }
+        await load(userId)
+        return { ok: true }
+      } finally {
+        mutating.current--
+      }
+    },
+    [userId, load],
+  )
+
   return {
     letters,
     archived,
     held,
+    scheduled,
     hasBond: partnerId !== null,
     partnerName,
     loading: loading || authLoading,
@@ -245,6 +293,7 @@ export function useLetters(): UseLetters {
     setArchived: setArchivedFn,
     deleteForMe,
     setShared: setSharedFn,
+    editScheduled: editScheduledFn,
     reload,
   }
 }
