@@ -24,7 +24,7 @@ things that bite.
 | Command | Does |
 |---|---|
 | `npm run dev` | Dev server |
-| `npm test` | Vitest, 86 logic-level tests across 4 files |
+| `npm test` | Vitest, 110 logic-level tests across 5 files |
 | `npm run typecheck` | `tsc -b` — the real type gate |
 | `npm run build` | Typecheck plus production build |
 | `npm run lint` | oxlint |
@@ -445,6 +445,41 @@ after midnight on its day, the same way delivery has always worked here.
 the new column, its constraint, the trigger's editing exception, and the
 unlink cancellation step, and are idempotent by inspection. Applying them to
 the live project is the owner's step and had not been run as of this record.
+
+## Phase 9 — Infinite scroll for the conversation list *(complete)*
+
+`listConversation` no longer fetches the whole current-bond history on every
+load and every 30-second poll. It's cursor-paginated on `(created_at, id)`,
+30 letters at a time; scrolling near the bottom fetches the next page
+automatically via an `IntersectionObserver`, matching a TikTok/Instagram-style
+feed rather than a "load more" button.
+
+- **A frozen refresh boundary, not a fixed-width refetch.** The naive version
+  — "always refetch the newest 30 and re-glue it to whatever was appended
+  after" — has a real bug: once the reader has scrolled to page 2+, new
+  letters arriving push the old page boundary down, so a fixed-width refetch
+  no longer lines up with where the appended page actually starts, and 1-2
+  letters can silently vanish from the list. Instead, the first time the
+  reader scrolls past page 1, the hook freezes a boundary cursor at the last
+  loaded letter; every poll and mutation from then on refetches only what's
+  strictly newer than it and splices that onto the untouched, already-loaded
+  tail (`spliceConversation` in `src/hooks/conversationPaging.ts`) — a letter
+  can't fall through a seam that never moves.
+- **The Supabase adapter's archived/pending-scheduled filter moved from JS
+  into the SQL `where` clause.** It used to fetch every bond letter and
+  filter in JavaScript after the fact; a `limit` applied before that filter
+  would have returned a page that looked full but wasn't, so the filter had
+  to move into the query itself before pagination could mean anything.
+- **No schema change, no RLS change, no live migration.** This phase is
+  entirely a query-shape and application-state change — `schema.sql` and
+  `policies.sql` are untouched.
+- **Two small, reused UX pieces**, deliberately not new notification
+  machinery: a scroll-to-top button, and a "new letter" toast that extends
+  the app's one existing `Toast` component with an optional click handler
+  and a longer duration rather than inventing a second surface.
+- **Scope: the current conversation only.** The archive and past chapters
+  still fetch everything in one request — revisit if either grows large
+  enough to need this too.
 
 ---
 
