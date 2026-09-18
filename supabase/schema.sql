@@ -58,6 +58,22 @@ alter table letters drop constraint if exists letters_salutation_length;
 alter table letters add  constraint letters_salutation_length
   check (salutation is null or char_length(salutation) between 1 and 60);
 
+-- Nullable; null means "deliver now" — exactly what every letter has always
+-- done. A DATE, not a timestamp: a real mailed letter arrives on a day, not
+-- a minute, which keeps the composer to one field and avoids a timezone
+-- decision entirely.
+alter table letters add column if not exists scheduled_for date;
+
+-- Re-checked on every insert AND every edit (a CHECK constraint validates
+-- the row being written, using current_date at THAT moment) — so
+-- rescheduling an already-pending letter to a past date is caught exactly
+-- the same way a fresh insert would be. Existing rows whose date has since
+-- passed are never re-validated, so this cannot retroactively break a
+-- letter that has already delivered.
+alter table letters drop constraint if exists letters_scheduled_for_not_past;
+alter table letters add  constraint letters_scheduled_for_not_past
+  check (scheduled_for is null or scheduled_for >= current_date);
+
 alter table letters alter column sender_id   drop not null;
 alter table letters alter column receiver_id drop not null;
 
