@@ -98,6 +98,18 @@ export interface PublicLetter {
 /** Repositories report failure in the value, never by throwing. */
 export type Result<T> = { data: T; error: null } | { data: null; error: string }
 
+/**
+ * A point in listConversation's page order — newest first, ties on the same
+ * millisecond broken by id descending (see mockRepository.ts's
+ * `compareNewestFirst`, which every cursor comparison, in both
+ * implementations, must agree with or a page boundary can gain a gap or an
+ * overlap).
+ */
+export interface LetterCursor {
+  createdAt: string
+  id: string
+}
+
 export interface SendLetterInput {
   senderId: string
   /**
@@ -131,8 +143,23 @@ export interface LetterRepository {
    * bonds work and the easiest thing to miss in a diff. It is NOT "every
    * letter you participate in". Letters from a past relationship live in
    * listChapter, and held letters in listHeld; neither appears here.
+   *
+   * Paginated. With no `options`, returns everything — every existing call
+   * site as of this writing (the contract suite has dozens) keeps working
+   * unchanged. Pass `limit` alone for the first page; `olderThan` + `limit`
+   * for an older page; `newerThan` (never with a `limit` — there is no
+   * ceiling on how many letters can have arrived) to refresh only what's
+   * newer than a previously frozen cursor. `newerThan` and `olderThan` are
+   * mutually exclusive.
    */
-  listConversation(userId: string): Promise<Result<Letter[]>>
+  listConversation(
+    userId: string,
+    options?: {
+      newerThan?: LetterCursor
+      olderThan?: LetterCursor
+      limit?: number
+    },
+  ): Promise<Result<Letter[]>>
   /** The ones you archived WITHIN the current chapter, newest first. */
   listArchived(userId: string): Promise<Result<Letter[]>>
   send(input: SendLetterInput): Promise<Result<Letter>>
