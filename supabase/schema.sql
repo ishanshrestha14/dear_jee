@@ -66,6 +66,13 @@ alter table letters add  constraint letters_salutation_length
 -- no timezone library needed anywhere this value is produced or compared.
 alter table letters add column if not exists scheduled_for timestamptz;
 
+-- Postgres refuses to change a column's type while an RLS policy's
+-- expression references it ("cannot alter type of a column used in a
+-- policy definition") — drop it here so the ALTER below can run; policies.sql
+-- (applied right after this file, always) does its own `drop policy if
+-- exists` before recreating it, so this never leaves the table exposed.
+drop policy if exists letters_select_participant on letters;
+
 -- Idempotent even when the column already exists as timestamptz (an
 -- ALTER COLUMN TYPE to the same type is a harmless no-op re-write, not an
 -- error) — this covers the live column that was originally added as a
