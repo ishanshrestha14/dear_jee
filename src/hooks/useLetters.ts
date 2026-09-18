@@ -287,10 +287,21 @@ export function useLetters(): UseLetters {
     mutating.current++
     try {
       // Optimistic: the dot disappears the instant the letter opens.
-      setLetters((current) => current.map((l) => (l.id === id ? { ...l, isRead: true } : l)))
+      // lettersRef is updated alongside state — load()'s post-boundary
+      // refresh splices from the ref, and a stale ref would resurrect the
+      // unread dot on the next poll.
+      setLetters((current) => {
+        const next = current.map((l) => (l.id === id ? { ...l, isRead: true } : l))
+        lettersRef.current = next
+        return next
+      })
       const result = await letterRepository.markRead(id)
       if (result.error !== null) {
-        setLetters((current) => current.map((l) => (l.id === id ? { ...l, isRead: false } : l)))
+        setLetters((current) => {
+          const next = current.map((l) => (l.id === id ? { ...l, isRead: false } : l))
+          lettersRef.current = next
+          return next
+        })
       }
     } finally {
       mutating.current--
