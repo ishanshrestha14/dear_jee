@@ -83,6 +83,9 @@ export function useLetters(): UseLetters {
   // ref rather than state.
   const lettersRef = useRef<Letter[]>([])
 
+  // Guards loadMoreLetters against re-entry within a single tick; see there.
+  const loadingMoreRef = useRef(false)
+
   // Null until the user scrolls past the first page; frozen from then on.
   // See spliceConversation and the spec's "frozen boundary" decision.
   const pageBoundary = useRef<LetterCursor | null>(null)
@@ -100,9 +103,15 @@ export function useLetters(): UseLetters {
   // Used whenever the current conversation's identity changes underneath
   // the hook without userId changing — a bond forming, breaking, or
   // reforming — since none of those remount LettersProvider.
+  // lettersRef and the letters state are cleared TOGETHER. Clearing only the
+  // ref would leave the two disagreeing whenever the load() that follows
+  // fails: the grid would still render the old conversation while every
+  // subsequent optimistic update (markRead, the archive/delete filters) maps
+  // over an empty ref and blanks the list out from under the reader.
   const resetPagination = useCallback(() => {
     pageBoundary.current = null
     lettersRef.current = []
+    setLetters([])
     setHasMoreLetters(false)
     setNewArrivals([])
   }, [])
@@ -233,36 +242,66 @@ export function useLetters(): UseLetters {
   }, [userId, load, resetPagination])
 
   const loadMoreLetters = useCallback(async () => {
-    if (userId === null || !hasMoreLetters || loadingMore) return
+    // The re-entrancy guard is a ref, not the loadingMore state: setLoadingMore
+    // does not take effect until the next render, so two calls landing in the
+    // same tick would both pass a state-based check and append the same page
+    // twice.
+    if (userId === null || !hasMoreLetters || loadingMoreRef.current) return
     const last = lettersRef.current[lettersRef.current.length - 1]
     if (last === undefined) return
+    loadingMoreRef.current = true
     setLoadingMore(true)
+
+    // Frozen BEFORE the fetch, not after it. A poll, or any mutation's
+    // load(), can resolve while this fetch is in flight — loadMoreLetters
+    // deliberately does not hold the `mutating` guard. With no boundary yet,
+    // that interleaved load() refetches a whole first page and REPLACES
+    // lettersRef, dropping the letter this page is anchored to; the boundary
+    // frozen afterwards would then name a letter no longer in the list, every
+    // later splice would take the boundaryIndex === -1 fallback, and that
+    // letter would never come back without a sign-out or a bond change. With
+    // the boundary already frozen, the interleaved load() asks for
+    // newer-than-boundary — which is unlimited, so it returns the whole
+    // prefix — and splices onto the tail instead of replacing it. Nothing is
+    // lost. Reset in the error branch below so a page that never arrived does
+    // not leave the hook permanently refreshing only the prefix.
+    const hadBoundary = pageBoundary.current !== null
+    if (!hadBoundary) {
+      pageBoundary.current = { createdAt: last.createdAt, id: last.id }
+    }
+
     try {
       const result = await letterRepository.listConversation(userId, {
         olderThan: { createdAt: last.createdAt, id: last.id },
         limit: PAGE_SIZE,
       })
       if (result.error !== null) {
-        setError(result.error)
+        if (!hadBoundary) pageBoundary.current = null
+        // Deliberately NOT setError, for the same reason setShared below does
+        // not: the routes early-return on a page-level error, which would
+        // replace the entire conversation with one line of text and leave no
+        // UI able to clear it — the sentinel that would retry is gone with
+        // the grid, and load() only clears the error on a non-silent load,
+        // which polls never are. A failed page has a last-known-good list
+        // behind it, so it behaves like a failed poll: leave the list alone,
+        // leave hasMoreLetters true, and let the next intersection retry.
         return
       }
-      // Frozen only now that the fetch is known to have succeeded — freezing
-      // it before the fetch would leave the hook stuck refreshing only the
-      // newer-than-boundary prefix even though this page never actually
-      // loaded. Every refresh from this point on refetches only what's newer
-      // than it; everything from here back was loaded once and is never
-      // touched again.
-      if (pageBoundary.current === null) {
-        pageBoundary.current = { createdAt: last.createdAt, id: last.id }
-      }
-      const next = [...lettersRef.current, ...result.data]
+      // Deduped against what is already loaded. An interleaved load() may
+      // have pulled some of these into the refreshed prefix already —
+      // archiving a letter above the boundary shifts one page-1 letter down
+      // into this page's range — and appending it again would render the
+      // same letter twice under a duplicate React key.
+      const existing = new Set(lettersRef.current.map((l) => l.id))
+      const next = [...lettersRef.current, ...result.data.filter((l) => !existing.has(l.id))]
       lettersRef.current = next
       setLetters(next)
       setHasMoreLetters(result.data.length === PAGE_SIZE)
     } finally {
+      loadingMoreRef.current = false
       setLoadingMore(false)
     }
-  }, [userId, hasMoreLetters, loadingMore])
+  }, [userId, hasMoreLetters])
 
   const clearNewArrivals = useCallback(() => setNewArrivals([]), [])
 

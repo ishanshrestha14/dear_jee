@@ -99,11 +99,19 @@ export interface PublicLetter {
 export type Result<T> = { data: T; error: null } | { data: null; error: string }
 
 /**
- * A point in listConversation's page order — newest first, ties on the same
- * millisecond broken by id descending (see mockRepository.ts's
+ * A point in listConversation's page order — newest first, ties on an equal
+ * created_at broken by id descending (see mockRepository.ts's
  * `compareNewestFirst`, which every cursor comparison, in both
  * implementations, must agree with or a page boundary can gain a gap or an
  * overlap).
+ *
+ * "Equal" is not the same width on both sides: the mock compares through
+ * Date.parse and so is millisecond-granular, while Postgres compares
+ * timestamptz at microsecond granularity. Two letters 300µs apart therefore
+ * tie in the mock and do not in the database. That costs nothing today
+ * because each implementation's cursor comparison matches its OWN sort, so
+ * neither can gap or overlap — but the two orders are not identical, and a
+ * cursor added here later must preserve that property rather than assume it.
  */
 export interface LetterCursor {
   createdAt: string

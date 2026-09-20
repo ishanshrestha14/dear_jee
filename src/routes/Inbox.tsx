@@ -66,23 +66,41 @@ export default function Inbox() {
   // seconds after the user turned sharing on.
   const sharing = sharingId === null ? null : (letters.find((l) => l.id === sharingId) ?? null)
 
-  const sentinelRef = useRef<HTMLDivElement | null>(null)
-
+  // A callback ref, not useRef + useEffect. The sentinel only exists in the
+  // main return branch, so while `loading` is true there is no node to
+  // observe. With an effect keyed on [hasMoreLetters, loadMoreLetters], the
+  // render that flips hasMoreLetters false -> true is not guaranteed to be
+  // the same render that flips loading true -> false; if it isn't, the effect
+  // runs once against a null node, never re-runs, and infinite scroll
+  // silently does nothing for the rest of the session. It happens to work
+  // today only because React batches those two setStates into one render.
+  // A callback ref fires when the node actually mounts, so attachment cannot
+  // depend on that scheduling detail.
+  const observerRef = useRef<IntersectionObserver | null>(null)
+  const loadMoreRef = useRef(loadMoreLetters)
+  // Written in an effect, never during render. loadMoreLetters guards on
+  // hasMoreLetters internally, so a ref that is one render stale cannot
+  // over-fetch — it just returns early.
   useEffect(() => {
-    const node = sentinelRef.current
-    if (node === null || !hasMoreLetters) return
+    loadMoreRef.current = loadMoreLetters
+  }, [loadMoreLetters])
+
+  const sentinelRef = useCallback((node: HTMLDivElement | null) => {
+    observerRef.current?.disconnect()
+    if (node === null) return
     // rootMargin fires the fetch a little before the sentinel is actually on
     // screen, so the next page is usually ready before the reader reaches
     // the bottom rather than after.
-    const observer = new IntersectionObserver(
+    observerRef.current = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting) void loadMoreLetters()
+        if (entries[0]?.isIntersecting) void loadMoreRef.current()
       },
       { rootMargin: '400px' },
     )
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [hasMoreLetters, loadMoreLetters])
+    observerRef.current.observe(node)
+  }, [])
+
+  useEffect(() => () => observerRef.current?.disconnect(), [])
 
   const closeLetter = useCallback(() => setOpenId(null), [])
   const closeShare = useCallback(() => setSharingId(null), [])
@@ -414,11 +432,12 @@ export default function Inbox() {
       </div>
 
       {/*
-        Zero-height and unobserved once hasMoreLetters is false — the effect
-        below tears the observer down rather than leaving it watching a
-        sentinel that will never trigger another fetch.
+        Rendered only while there may be more to fetch. Unmounting it fires
+        the callback ref with null, which disconnects the observer rather
+        than leaving it watching a sentinel that will never trigger another
+        fetch.
       */}
-      <div ref={sentinelRef} aria-hidden className="h-px" />
+      {hasMoreLetters && <div ref={sentinelRef} aria-hidden className="h-px" />}
       {loadingMore && (
         <p className="mt-4 text-center font-ui text-xs text-ink-muted">Loading more letters…</p>
       )}
