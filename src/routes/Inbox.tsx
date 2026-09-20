@@ -1,10 +1,11 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LetterCard } from '../components/LetterCard'
 import { LetterModal } from '../components/LetterModal'
 import { ShareModal } from '../components/ShareModal'
 import { Toast } from '../components/Toast'
+import { ScrollToTopButton, scrollToTop } from '../components/ScrollToTopButton'
 import { useLettersContext } from '../hooks/LettersProvider'
 import { useBonds } from '../hooks/useBonds'
 import { useAuth } from '../auth/useAuth'
@@ -22,6 +23,11 @@ export default function Inbox() {
     partnerName,
     loading,
     error,
+    hasMoreLetters,
+    loadingMore,
+    loadMoreLetters,
+    newArrivals,
+    clearNewArrivals,
     markRead,
     setArchived,
     deleteForMe,
@@ -36,7 +42,11 @@ export default function Inbox() {
   const unseenEnd = past.find((b) => b.seenEndAt === null) ?? null
   const [openId, setOpenId] = useState<string | null>(null)
   const [sharingId, setSharingId] = useState<string | null>(null)
-  const [toast, setToast] = useState<string | null>(null)
+  const [toast, setToast] = useState<{
+    message: string
+    onClick?: () => void
+    durationMs?: number
+  } | null>(null)
   // A held letter has no chapter and no confirmed recipient yet, so it gets
   // its own lightweight expand/delete rather than the full LetterModal
   // (which assumes a chapter to archive into and a receiver to share with).
@@ -55,6 +65,42 @@ export default function Inbox() {
   // captured Letter object would still say "Only you two" and show no link,
   // seconds after the user turned sharing on.
   const sharing = sharingId === null ? null : (letters.find((l) => l.id === sharingId) ?? null)
+
+  // A callback ref, not useRef + useEffect. The sentinel only exists in the
+  // main return branch, so while `loading` is true there is no node to
+  // observe. With an effect keyed on [hasMoreLetters, loadMoreLetters], the
+  // render that flips hasMoreLetters false -> true is not guaranteed to be
+  // the same render that flips loading true -> false; if it isn't, the effect
+  // runs once against a null node, never re-runs, and infinite scroll
+  // silently does nothing for the rest of the session. It happens to work
+  // today only because React batches those two setStates into one render.
+  // A callback ref fires when the node actually mounts, so attachment cannot
+  // depend on that scheduling detail.
+  const observerRef = useRef<IntersectionObserver | null>(null)
+  const loadMoreRef = useRef(loadMoreLetters)
+  // Written in an effect, never during render. loadMoreLetters guards on
+  // hasMoreLetters internally, so a ref that is one render stale cannot
+  // over-fetch — it just returns early.
+  useEffect(() => {
+    loadMoreRef.current = loadMoreLetters
+  }, [loadMoreLetters])
+
+  const sentinelRef = useCallback((node: HTMLDivElement | null) => {
+    observerRef.current?.disconnect()
+    if (node === null) return
+    // rootMargin fires the fetch a little before the sentinel is actually on
+    // screen, so the next page is usually ready before the reader reaches
+    // the bottom rather than after.
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) void loadMoreRef.current()
+      },
+      { rootMargin: '400px' },
+    )
+    observerRef.current.observe(node)
+  }, [])
+
+  useEffect(() => () => observerRef.current?.disconnect(), [])
 
   const closeLetter = useCallback(() => setOpenId(null), [])
   const closeShare = useCallback(() => setSharingId(null), [])
@@ -76,6 +122,22 @@ export default function Inbox() {
     setOpenId(letter.id)
     if (!letter.isRead) void markRead(letter.id)
   }
+
+  useEffect(() => {
+    if (newArrivals.length === 0) return
+    const who = partnerName || 'them'
+    const message =
+      newArrivals.length === 1 ? `New letter from ${who} 💌` : `${newArrivals.length} new letters from ${who} 💌`
+    setToast({
+      message,
+      durationMs: 5000,
+      onClick: () => {
+        scrollToTop()
+        setToast(null)
+      },
+    })
+    clearNewArrivals()
+  }, [newArrivals, partnerName, clearNewArrivals])
 
   if (loading) {
     return <p className="py-20 text-center font-ui text-sm text-ink-muted">Opening the post…</p>
@@ -140,7 +202,7 @@ export default function Inbox() {
                     onClick={() => {
                       void (async () => {
                         const result = await sendHeld(letter.id)
-                        if (!result.ok) setToast(result.error ?? 'That did not work.')
+                        if (!result.ok) setToast({ message: result.error ?? 'That did not work.' })
                       })()
                     }}
                     className="font-ui text-xs text-accent underline underline-offset-4"
@@ -315,7 +377,15 @@ export default function Inbox() {
         {upcoming}
 
         <AnimatePresence>
-          {toast !== null && <Toast key="toast" message={toast} onDone={() => setToast(null)} />}
+          {toast !== null && (
+            <Toast
+              key="toast"
+              message={toast.message}
+              onClick={toast.onClick}
+              durationMs={toast.durationMs}
+              onDone={() => setToast(null)}
+            />
+          )}
         </AnimatePresence>
       </div>
     )
@@ -360,6 +430,20 @@ export default function Inbox() {
           />
         ))}
       </div>
+
+      {/*
+        Rendered only while there may be more to fetch. Unmounting it fires
+        the callback ref with null, which disconnects the observer rather
+        than leaving it watching a sentinel that will never trigger another
+        fetch.
+      */}
+      {hasMoreLetters && <div ref={sentinelRef} aria-hidden className="h-px" />}
+      {loadingMore && (
+        <p className="mt-4 text-center font-ui text-xs text-ink-muted">Loading more letters…</p>
+      )}
+
+      <ScrollToTopButton />
+
       <AnimatePresence>
         {open && (
           <LetterModal
@@ -392,13 +476,21 @@ export default function Inbox() {
               // exact moment the user wanted it.
               void (async () => {
                 const result = await setShared(sharing.id, next)
-                if (!result.ok) setToast(result.error ?? 'That did not work.')
+                if (!result.ok) setToast({ message: result.error ?? 'That did not work.' })
               })()
             }}
-            onCopied={() => setToast('Link copied! Send it to them on WhatsApp 💌')}
+            onCopied={() => setToast({ message: 'Link copied! Send it to them on WhatsApp 💌' })}
           />
         )}
-        {toast !== null && <Toast key="toast" message={toast} onDone={() => setToast(null)} />}
+        {toast !== null && (
+          <Toast
+            key="toast"
+            message={toast.message}
+            onClick={toast.onClick}
+            durationMs={toast.durationMs}
+            onDone={() => setToast(null)}
+          />
+        )}
       </AnimatePresence>
     </>
   )

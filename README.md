@@ -24,7 +24,7 @@ things that bite.
 | Command | Does |
 |---|---|
 | `npm run dev` | Dev server |
-| `npm test` | Vitest, 86 logic-level tests across 4 files |
+| `npm test` | Vitest, 111 logic-level tests across 5 files |
 | `npm run typecheck` | `tsc -b` — the real type gate |
 | `npm run build` | Typecheck plus production build |
 | `npm run lint` | oxlint |
@@ -445,6 +445,93 @@ after midnight on its day, the same way delivery has always worked here.
 the new column, its constraint, the trigger's editing exception, and the
 unlink cancellation step, and are idempotent by inspection. Applying them to
 the live project is the owner's step and had not been run as of this record.
+
+## Phase 9 — Infinite scroll for the conversation list *(complete, one index pending)*
+
+`listConversation` no longer fetches the whole current-bond history on every
+load and every 30-second poll. It's cursor-paginated on `(created_at, id)`,
+30 letters at a time; scrolling near the bottom fetches the next page
+automatically via an `IntersectionObserver`, matching a TikTok/Instagram-style
+feed rather than a "load more" button.
+
+- **A frozen refresh boundary, not a fixed-width refetch.** The naive version
+  — "always refetch the newest 30 and re-glue it to whatever was appended
+  after" — has a real bug: once the reader has scrolled to page 2+, new
+  letters arriving push the old page boundary down, so a fixed-width refetch
+  no longer lines up with where the appended page actually starts, and 1-2
+  letters can silently vanish from the list. Instead, the first time the
+  reader scrolls past page 1, the hook freezes a boundary cursor at the last
+  loaded letter; every poll and mutation from then on refetches only what's
+  strictly newer than it and splices that onto the untouched, already-loaded
+  tail (`spliceConversation` in `src/hooks/conversationPaging.ts`) — a letter
+  can't fall through a seam that never moves.
+- **The Supabase adapter's archived/pending-scheduled filter moved from JS
+  into the SQL `where` clause.** It used to fetch every bond letter and
+  filter in JavaScript after the fact; a `limit` applied before that filter
+  would have returned a page that looked full but wasn't, so the filter had
+  to move into the query itself before pagination could mean anything.
+- **One index, and no RLS change.** The application side of this phase is
+  entirely a query-shape and state change, and `policies.sql` is untouched.
+  But review caught that no existing index could serve the new query:
+  `letters_bond_id_idx` carries no ordering and the two composite indexes
+  lead with `sender_id`/`receiver_id`, so Postgres would scan the whole bond
+  and sort all of it before taking 30 — on every page *and* every poll, which
+  is more database work per poll than before pagination existed. The payload
+  and the DOM would have got cheaper while the database got more expensive.
+  `letters_bond_created_idx on letters (bond_id, created_at desc, id desc)`
+  matches the query's sort exactly, making the limit a top-N index scan and
+  the cursor a seek.
+- **Un-archiving and a bond change both collapse the list back to the first
+  30.** A frozen boundary has no sensible position to splice a resurfaced
+  letter into, and a stale tail from a previous bond must never be spliced
+  onto a new one, so both reset pagination and refetch page one. A reader
+  who had scrolled deep will find themselves back at the top.
+- **Two small, reused UX pieces**, deliberately not new notification
+  machinery: a scroll-to-top button, and a "new letter" toast that extends
+  the app's one existing `Toast` component with an optional click handler
+  and a longer duration rather than inventing a second surface.
+- **Scope: the current conversation only.** The archive and past chapters
+  still fetch everything in one request — revisit if either grows large
+  enough to need this too.
+
+**Found by review (whole-branch, before merge):**
+- **A failed page fetch bricked the inbox permanently.** `loadMoreLetters`
+  set the page-level error, and the routes early-return on that — so one
+  dropped connection while scrolling replaced the entire conversation with a
+  single line of text that nothing could clear: the sentinel that would
+  retry is gone with the grid, and `load()` only clears the error on a
+  non-silent load, which polls never are. A failed page now behaves like a
+  failed poll — the last-known-good list stays and the next intersection
+  retries. The same trap is already documented three functions below, in
+  `setShared`, which deliberately avoids it.
+- **A poll landing mid-page-fetch could drop a letter forever** — precisely
+  the seam failure the frozen boundary exists to prevent, reintroduced by the
+  fix that moved the boundary write after the fetch. `loadMoreLetters` does
+  not hold the `mutating` guard, so an interleaved `load()` with no boundary
+  yet refetched a first page and *replaced* `lettersRef`, discarding the
+  letter the in-flight page was anchored to; the boundary frozen afterwards
+  then named a letter no longer in the list, every later splice took the
+  `boundaryIndex === -1` fallback, and it never came back without a sign-out.
+  The boundary is frozen before the fetch again — safe because a
+  newer-than-boundary refresh is unlimited and returns the whole prefix — and
+  reset if that fetch fails. The append is also deduped by id, which closes
+  the mirror case: archiving a letter above the boundary shifts a page-1
+  letter down into the in-flight page's range and it was appended twice.
+- **The IntersectionObserver could silently never attach.** The sentinel
+  only exists once `loading` is false, but the effect was keyed on
+  `[hasMoreLetters, loadMoreLetters]`. If the render flipping
+  `hasMoreLetters` true were ever not the render flipping `loading` false,
+  the effect would run once against a null node and never re-run — infinite
+  scroll dead for the session, with no error. It worked only because React
+  happened to batch those two setStates. A callback ref fires when the node
+  actually mounts, so attachment no longer depends on React's scheduling.
+- **`resetPagination` cleared the ref but not the state**, so a failed
+  reload left `letters` rendering the old conversation while `lettersRef`
+  was empty — and the next `markRead` would map over the empty ref and blank
+  the list. Both are cleared together now.
+- The re-entrancy guard on `loadMoreLetters` was state, which does not take
+  effect until the next render; two calls in one tick would both pass it. It
+  is a ref.
 
 ---
 

@@ -206,7 +206,7 @@ export function createSupabaseRepositories(): {
   }
 
   const letterRepository: LetterRepository = {
-    async listConversation(userId) {
+    async listConversation(userId, options) {
       return guard(async () => {
         // Scoped to the OPEN bond: this is the current chapter, not every
         // letter the user has ever exchanged. No open bond is a real,
@@ -219,21 +219,45 @@ export function createSupabaseRepositories(): {
         const bondResult = await openBond()
         if (bondResult.error !== null) return fail(bondResult.error)
         if (bondResult.data === null) return ok([])
-        const { data, error } = await db
+
+        const nowIso = new Date().toISOString()
+        let query = db
           .from('letters')
           .select('*')
           .eq('bond_id', bondResult.data.id)
+          // Not archived by this side. Mirrors archivedBy() below, in SQL:
+          // pushed into the where clause (rather than filtered in JS, as
+          // every other list method here still does) because a `limit`
+          // further down has to apply to the CORRECT row set, or a page
+          // can come back short.
+          .or(
+            `and(sender_id.eq.${userId},sender_archived_at.is.null),` +
+              `and(receiver_id.eq.${userId},receiver_archived_at.is.null)`,
+          )
+          // De Morgan's of "not (I'm the sender AND it's still pending)":
+          // not-sender, OR no schedule, OR its date has already passed.
+          .or(`sender_id.neq.${userId},scheduled_for.is.null,scheduled_for.lte.${nowIso}`)
           .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+
+        // Mirrors mockRepository.ts's compareNewestFirst: `created_at desc,
+        // id desc`, so a `lt`/`gt` tuple comparison against that same pair
+        // is the correct cursor in either direction.
+        if (options?.olderThan !== undefined) {
+          const { createdAt, id } = options.olderThan
+          query = query.or(`created_at.lt.${createdAt},and(created_at.eq.${createdAt},id.lt.${id})`)
+        }
+        if (options?.newerThan !== undefined) {
+          const { createdAt, id } = options.newerThan
+          query = query.or(`created_at.gt.${createdAt},and(created_at.eq.${createdAt},id.gt.${id})`)
+        }
+        if (options?.limit !== undefined) {
+          query = query.limit(options.limit)
+        }
+
+        const { data, error } = await query
         if (error) return fail(letterErrorMessage(error.message))
-        const rows = (data as LetterRow[]).map(toLetter)
-        const now = Date.now()
-        return ok(
-          rows.filter(
-            (l) =>
-              !archivedBy(l, userId) &&
-              !(l.senderId === userId && l.scheduledFor !== null && Date.parse(l.scheduledFor) > now),
-          ),
-        )
+        return ok((data as LetterRow[]).map(toLetter))
       })
     },
 

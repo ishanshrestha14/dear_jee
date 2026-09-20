@@ -180,6 +180,17 @@ create index if not exists letters_participants_created_idx
 create index if not exists letters_receiver_created_idx
   on letters (receiver_id, created_at desc);
 
+-- Phase 9's paginated conversation query is
+--   where bond_id = $1 and (...) order by created_at desc, id desc limit 30
+-- and neither index above can serve it: both lead with sender_id/receiver_id,
+-- and letters_bond_id_idx carries no ordering. Without this one, Postgres
+-- scans every letter in the bond and SORTS THE WHOLE SET before taking 30 —
+-- on every page and every 30-second poll, which is more work per poll than
+-- before pagination existed. Leading with bond_id and matching the query's
+-- sort exactly makes the limit a top-N index scan and the cursor a seek.
+create index if not exists letters_bond_created_idx
+  on letters (bond_id, created_at desc, id desc);
+
 -- Base58-ish: no 0, O, I or l, so a code read off a screen is unambiguous.
 -- Uses the CSPRNG rather than random(): this is a bearer credential, and the
 -- app is already careful to use one for share slugs.
