@@ -317,18 +317,21 @@ export function createSupabaseRepositories(): {
       })
     },
 
-    async setAcknowledged(letterId, userId, acknowledged) {
+    async setAcknowledged(letterId, _userId, acknowledged) {
       return guard(async () => {
         const at = acknowledged ? new Date().toISOString() : null
-        // .eq('receiver_id', userId) is belt to the trigger's braces: the
-        // trigger is the real enforcement, but matching on it here turns
-        // "someone else's letter" into a clean not-found rather than a
-        // database exception surfaced as prose.
+        // No .eq('receiver_id', ...) here: the trigger is the SOLE
+        // enforcement. Filtering on it client-side would turn a sender's
+        // fold attempt into a bare "not found" instead of letting it reach
+        // enforce_letter_update, losing the explanation the mock gives for
+        // the identical case and making the ONLY_RECEIVER_MAY_ACKNOWLEDGE
+        // branch in letterErrorMessage unreachable. A non-participant is
+        // still stopped earlier, by letters_update_participant, and
+        // correctly gets "Letter not found." because for them it is.
         const { data, error } = await db
           .from('letters')
           .update({ acknowledged_at: at })
           .eq('id', letterId)
-          .eq('receiver_id', userId)
           .select()
           .maybeSingle()
         if (error) return fail(letterErrorMessage(error.message))
