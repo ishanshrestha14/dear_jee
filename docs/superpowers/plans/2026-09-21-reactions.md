@@ -644,6 +644,11 @@ Add directly after `setArchivedFn`:
         // updater is not guaranteed to run before the next line, and load()'s
         // Promise.all can read lettersRef before React flushes it, especially
         // under the mock's zero latency.
+        // Captured BEFORE the optimistic write, so a failure restores what was
+        // actually there. Recomputing the revert value instead would mean a
+        // failed UNFOLD reverts to null — erasing a fold the database still
+        // holds, which is the opposite of what a revert is for.
+        const previous = lettersRef.current.find((l) => l.id === id)?.acknowledgedAt ?? null
         const at = acknowledged ? new Date().toISOString() : null
         const optimistic = lettersRef.current.map((l) =>
           l.id === id ? { ...l, acknowledgedAt: at } : l,
@@ -654,7 +659,7 @@ Add directly after `setArchivedFn`:
         const result = await letterRepository.setAcknowledged(id, userId, acknowledged)
         if (result.error !== null) {
           const reverted = lettersRef.current.map((l) =>
-            l.id === id ? { ...l, acknowledgedAt: acknowledged ? null : at } : l,
+            l.id === id ? { ...l, acknowledgedAt: previous } : l,
           )
           lettersRef.current = reverted
           setLetters(reverted)
@@ -674,9 +679,11 @@ Add directly after `setArchivedFn`:
   )
 ```
 
-Note the revert restores the *previous* value: folding reverts to `null`,
-unfolding reverts to the timestamp the optimistic update replaced. Do not
-simply set `null` in both directions.
+Note the revert restores `previous`, captured before the optimistic write —
+folding reverts to `null`, unfolding reverts to the timestamp it replaced.
+Do NOT recompute the revert value from `acknowledged` or reuse `at`: on the
+unfold path `at` is already null, so a failed unfold would erase a fold the
+database still holds.
 
 - [ ] **Step 3: Return it**
 
@@ -705,6 +712,8 @@ git commit -m "feat(hooks): folding a corner, optimistically"
 - Modify: `src/components/LetterModal.tsx`
 - Modify: `src/components/LetterCard.tsx`
 - Modify: `src/routes/Inbox.tsx`
+- Modify: `src/routes/Archive.tsx` — `folded` is a required prop and this is one of three `LetterModal` call sites
+- Modify: `src/routes/Chapter.tsx` — likewise
 
 **Interfaces:**
 - Consumes: `FoldedCorner`, `FoldGlyph` (Task 4); `PaperTexture.ornament` (Task 4); `useLetters().setAcknowledged` (Task 5).
