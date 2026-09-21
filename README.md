@@ -605,10 +605,10 @@ them.
   shape, without anyone having to write a fold-specific test for it.
 
 **Not verified, and this matters more here than anywhere in this record.**
-Nobody on this project can see a rendered page — no task in this phase, or
-any before it, has run a browser. That leaves genuinely unchecked: whether the
-fold reads as a dog-ear at all rather than an unlabeled smudge, where it lands
-on the card and in the sheet, and the layout at 375px. The Supabase adapter's
+Nobody on this project can see a rendered page — no task in this phase ran a
+browser. That leaves genuinely unchecked: whether the fold reads as a dog-ear
+at all rather than an unlabeled smudge, where it lands on the card and in the
+sheet, and the layout at 375px. The Supabase adapter's
 `setAcknowledged` has no test coverage and cannot get any here — the contract
 suite runs against the mock only, and the SQL behind the real trigger is
 unexecuted — so it is verified by reading the code, not by running it.
