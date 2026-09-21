@@ -95,6 +95,7 @@ export default function Archive() {
             authorName={authorOf(open)}
             recipientName={recipientOf(open)}
             archived
+            folded={open.acknowledgedAt !== null}
             trapActive={sharingId === null}
             onClose={closeLetter}
             onArchive={() => {

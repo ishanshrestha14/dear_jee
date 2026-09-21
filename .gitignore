@@ -2,6 +2,10 @@ node_modules/
 dist/
 .env
 .env.local
+# Any parked copy of .env — renaming it to run on the mock must never
+# make it committable. `.env` alone does not match `.env.off`.
+.env.*
+!.env.example
 .DS_Store
 
 # Vercel CLI link artifact

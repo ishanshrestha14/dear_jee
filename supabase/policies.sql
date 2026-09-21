@@ -100,6 +100,7 @@ revoke update on letters from authenticated;
 grant update (is_read, is_public, share_slug,
               sender_archived_at, receiver_archived_at,
               sender_deleted_at, receiver_deleted_at,
+              acknowledged_at,
               message, salutation, body_font, scheduled_for)
   on letters to authenticated;
 

@@ -182,3 +182,26 @@ if this ever grows past two people.
 returns before `onCopied()`, so a mobile user gets the OS share sheet and no
 toast. Arguably correct — the sheet is its own feedback — but it means the
 spec's toast copy never appears on the device it names WhatsApp for.
+
+## Carried out of the reactions phase (Phase 11)
+
+**`PaperTexture.ornament` will not survive merging with `phase-10-letter-themes`
+unmodified.** `src/design/PaperTexture.tsx` takes `ornament?: ReactNode` — a
+single slot, not a list. Phase 11 (this branch) uses it for the folded-corner
+decoration at bottom-left. The unmerged sibling branch
+`phase-10-letter-themes` adds an identically named `ornament` prop to the same
+component for its own stationery ornaments, at top-left and bottom-right.
+
+Not a problem today: the two branches have not merged, and their corners do
+not collide — top-left/bottom-right versus bottom-left. But one prop cannot
+hold two ornaments, so once both land, a themed letter that is also folded
+has no way to render both decorations as the code currently stands; whichever
+branch merges second will silently drop the other's ornament.
+
+The fix, whenever the merge happens, is one of: change `ornament` to accept a
+list (`ornament?: ReactNode[]` or similar) and render each in source order, or
+leave the prop as a single `ReactNode` and have call sites compose a
+`<>...</>` fragment of both ornaments before passing it in. Either is a small
+change to `PaperTexture.tsx` and its two-or-more call sites — not attempted
+here, since the sibling branch is unmerged and speculative accommodation
+would be worse than this note.

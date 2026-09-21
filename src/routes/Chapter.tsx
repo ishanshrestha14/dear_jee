@@ -124,6 +124,7 @@ export default function Chapter() {
             recipientName={recipientOf(open)}
             archived
             readOnly
+            folded={open.acknowledgedAt !== null}
             // ShareModal registers its own Escape handler; while it is open the
             // letter modal must ignore Escape too, or one keypress closes both.
             // Mirrors Archive.tsx exactly.

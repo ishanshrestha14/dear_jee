@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Archive, ArchiveRestore, Share2, Trash2, X } from 'lucide-react'
+import { Archive, ArchiveRestore, Heart, Share2, Trash2, X } from 'lucide-react'
 import { PaperTexture } from '../design/PaperTexture'
+import { FoldedCorner } from '../design/FoldedCorner'
 import { LetterSheet } from './LetterSheet'
 import type { Letter } from '../data/types'
 
@@ -17,6 +18,13 @@ interface LetterModalProps {
    * Delete stay: both concern your own copy.
    */
   readOnly?: boolean
+  /** Whether this letter's corner is currently turned down. */
+  folded: boolean
+  /**
+   * Folds or unfolds. Absent means no control — the writer, the archive and a
+   * past chapter all see the fold but cannot change it.
+   */
+  onFold?: () => void
   trapActive: boolean
   onClose: () => void
   onArchive: () => void
@@ -38,6 +46,8 @@ export function LetterModal({
   recipientName,
   archived,
   readOnly = false,
+  folded,
+  onFold,
   trapActive,
   onClose,
   onArchive,
@@ -135,7 +145,7 @@ export function LetterModal({
         transition={{ type: 'spring', stiffness: 210, damping: 26 }}
         className="relative w-full max-w-[600px] focus:outline-none"
       >
-        <PaperTexture className="p-8 sm:p-12">
+        <PaperTexture className="p-8 sm:p-12" ornament={folded ? <FoldedCorner /> : null}>
           {/*
             Close lives as an overlay above LetterSheet (not inside it —
             LetterSheet is the letter's own content, shared with the public
@@ -188,6 +198,32 @@ export function LetterModal({
               </>
             ) : (
               <>
+                {onFold !== undefined && (
+                  <motion.button
+                    type="button"
+                    onClick={onFold}
+                    aria-pressed={folded}
+                    aria-label="Love this letter"
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.95 }}
+                    className={`rounded-full p-1.5 transition-colors ${
+                      folded ? 'text-accent' : 'text-ink-muted hover:text-accent'
+                    }`}
+                  >
+                    {/*
+                      The heart is the verb; the turned-down corner it leaves on
+                      the page is the trace. Filled when loved, outline when not
+                      — the state has to survive without colour, since text-accent
+                      alone would not reach a low-vision reader, and aria-pressed
+                      carries it for a screen reader.
+
+                      No animation on the fill: a heart that pops is the chat-app
+                      instinct this app keeps declining, and it would need a
+                      reduced-motion story the whileTap scale already provides.
+                    */}
+                    <Heart size={18} fill={folded ? 'currentColor' : 'none'} />
+                  </motion.button>
+                )}
                 <motion.button
                   type="button"
                   onClick={onShare}

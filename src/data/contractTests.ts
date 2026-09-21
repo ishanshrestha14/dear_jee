@@ -1050,5 +1050,61 @@ export function describeRepositoryContract(name: string, setup: ContractSetup): 
         expect(view.data!.bodyFont).toBe('dancing-script')
       })
     })
+
+    describe('folding the corner', () => {
+      it('the recipient folds it, and it reads back', async () => {
+        const inbox = (await fx.letters.listConversation(fx.userId)).data!
+        const received = inbox.find((l) => l.receiverId === fx.userId)!
+        const folded = await fx.letters.setAcknowledged(received.id, fx.userId, true)
+        expect(folded.error).toBe(null)
+        expect(folded.data!.acknowledgedAt).not.toBe(null)
+      })
+
+      it('unfolding puts it back to null', async () => {
+        const inbox = (await fx.letters.listConversation(fx.userId)).data!
+        const received = inbox.find((l) => l.receiverId === fx.userId)!
+        await fx.letters.setAcknowledged(received.id, fx.userId, true)
+        const unfolded = await fx.letters.setAcknowledged(received.id, fx.userId, false)
+        expect(unfolded.error).toBe(null)
+        expect(unfolded.data!.acknowledgedAt).toBe(null)
+      })
+
+      it('the seeded letters start unfolded', async () => {
+        const inbox = (await fx.letters.listConversation(fx.userId)).data!
+        for (const letter of inbox) {
+          expect(letter.acknowledgedAt).toBe(null)
+        }
+      })
+
+      // The most valuable test in this phase: the mock reimplementing the
+      // trigger. The writer may find a fold but never make one.
+      it('refuses the sender', async () => {
+        const sent = (
+          await fx.letters.send({
+            senderId: fx.userId,
+            receiverId: fx.partnerId,
+            message: 'Mine to write, not to fold.',
+            salutation: null,
+            bodyFont: null,
+          })
+        ).data!
+        const refused = await fx.letters.setAcknowledged(sent.id, fx.userId, true)
+        expect(refused.error).not.toBe(null)
+        expect(refused.data).toBe(null)
+      })
+
+      it('a folded letter tells a stranger nothing', async () => {
+        const inbox = (await fx.letters.listConversation(fx.userId)).data!
+        const received = inbox.find((l) => l.receiverId === fx.userId)!
+        await fx.letters.setAcknowledged(received.id, fx.userId, true)
+        await fx.letters.setShared(received.id, true)
+        const reread = (await fx.letters.listConversation(fx.userId)).data!.find(
+          (l) => l.id === received.id,
+        )!
+        const view = await fx.letters.getBySlug(reread.shareSlug!)
+        expect(view.error).toBe(null)
+        expect(Object.keys(view.data!)).not.toContain('acknowledgedAt')
+      })
+    })
   })
 }

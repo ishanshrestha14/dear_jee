@@ -13,9 +13,23 @@ const TEXTURE_URI =
 interface PaperTextureProps {
   children: ReactNode
   className?: string
+  /**
+   * Edge decoration — a folded corner, say — that must resolve against the
+   * paper itself, not the padded content column. Rendered as a sibling of the
+   * content wrapper, inside the outer `relative overflow-hidden` div: that
+   * makes the outer div the containing block, so an inset means inset from
+   * the paper edge rather than from the text, and, because the content
+   * wrapper below is itself positioned and comes later in source, keeps the
+   * decoration underneath the words in paint order.
+   *
+   * Passing decoration as an ordinary child instead resolves it against the
+   * INNER wrapper — inset by the caller's padding — and paints it over the
+   * letter.
+   */
+  ornament?: ReactNode
 }
 
-export function PaperTexture({ children, className = '' }: PaperTextureProps) {
+export function PaperTexture({ children, className = '', ornament }: PaperTextureProps) {
   return (
     <div
       className={`relative overflow-hidden rounded-letter bg-paper-letter shadow-letter ${className}`}
@@ -25,6 +39,7 @@ export function PaperTexture({ children, className = '' }: PaperTextureProps) {
         className="pointer-events-none absolute inset-0 mix-blend-multiply opacity-[0.035]"
         style={{ backgroundImage: TEXTURE_URI }}
       />
+      {ornament}
       <div className="relative">{children}</div>
     </div>
   )

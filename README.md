@@ -24,7 +24,7 @@ things that bite.
 | Command | Does |
 |---|---|
 | `npm run dev` | Dev server |
-| `npm test` | Vitest, 111 logic-level tests across 5 files |
+| `npm test` | Vitest, 116 logic-level tests across 5 files |
 | `npm run typecheck` | `tsc -b` — the real type gate |
 | `npm run build` | Typecheck plus production build |
 | `npm run lint` | oxlint |
@@ -333,6 +333,18 @@ bond, at which point it joins that chapter.
   screen linked to `/chapters` — the only route into a correspondence that
   had already ended.
 
+**Changed after looking at it.** The control began as a small fold glyph
+matching the mark it makes. Seen in the browser, the mark read well and the
+glyph did not — it showed the result without saying what pressing it meant.
+It is now a heart, outline when untouched and filled when loved, labelled
+"Love this letter"; the turned-down corner stays exactly as it was. The heart
+is the verb, the fold is the trace. This is not the chat reaction decision 1
+rejected: that decision refused a VOCABULARY of named feelings, and one heart
+is still the single wordless gesture it chose — nothing is rendered on the
+letter itself. The fill is deliberately unanimated, because a heart that pops
+is the instinct this app keeps declining and would need a reduced-motion
+story the button's existing tap-scale already provides.
+
 **Migration status.** `supabase/schema.sql` and `supabase/policies.sql` carry
 the `bonds` table, the chapter-scoping changes, and the narrowed
 `receiver_id` trigger, and are idempotent by inspection. Applying them to the
@@ -532,6 +544,116 @@ feed rather than a "load more" button.
 - The re-entrancy guard on `loadMoreLetters` was state, which does not take
   effect until the next render; two calls in one tick would both pass it. It
   is a ref.
+
+## Phase 11 — Reactions *(complete, migration pending)*
+
+The person a letter was written to can now fold its corner — one quiet,
+wordless acknowledgment, found by the writer later rather than announced to
+them.
+
+- **The gesture is a turned-down corner, and that was not the first idea.** A
+  pressed flower was rejected because a sibling branch's botanical stationery
+  already lets a writer choose flowery paper for a letter, and a flower
+  appearing on it would leave "the reader added a sprig" and "the writer
+  picked the floral design" indistinguishable on the same page. A mark beside
+  the postmark was rejected because a postmark is metadata about delivery, and
+  a mark next to it reads as a status badge — closer to a read receipt than a
+  gesture. A folded corner is the one physical act that means *this one
+  mattered* without also meaning *I reply*, and it is inherently reversible:
+  you unfold it. The undo therefore reads as a physical act, not as editing a
+  record.
+- **It is found, not announced.** No toast, no badge, no count — the writer
+  simply notices, next time they look, that a corner is down. This is why the
+  phase needed no notification machinery at all, despite Phase 9 having just
+  built a toast surface this feature could have reused. It is also the
+  decision most likely to be "improved" later into a notification, so it's
+  worth saying plainly: that would turn the one gesture on this app that
+  isn't a message into one, and that trade was made on purpose.
+- **`is_read` was the precedent, and it was followed line for line.**
+  `acknowledged_at` is a nullable receiver-only column, guarded by a clause in
+  `enforce_letter_update` using `is distinct from`, sitting outside the
+  `if current_user = 'authenticated'` wrapper — because nothing privileged
+  ever writes it, the same reason a folded letter survives a breakup and its
+  own author's account deletion untouched. `is distinct from` rather than
+  `<>` is load-bearing here specifically because null is the ordinary value on
+  both sides of the comparison, not an edge case: `<>` against a null yields
+  null, which is falsy in an `if`, so the guard would have silently permitted
+  every fold it exists to reject.
+- **The database enforces receiver-only and nothing more.** "Current
+  conversation" — a folded corner only being offered for the letters in the
+  open bond, not the archive or a past chapter — is held entirely by where the
+  control is offered in the client, not by the trigger. The rejected
+  alternative was teaching `enforce_letter_update` bond-open and not-archived
+  too; that would have meant three more rules for the mock to reimplement
+  exactly, and mock/database divergence has been this project's most recurring
+  defect. One receiver-only rule in the database is one rule to keep in sync.
+- **A column, not a `reactions` table.** That forecloses more than one person
+  reacting to a letter, more than one reaction type, and any history of
+  folding and unfolding — there is exactly one boolean-shaped fact, "has the
+  receiver folded this," and the schema says so.
+- **What review found is the most interesting thing in this phase.** The
+  adapter's `setAcknowledged` originally carried `.eq('receiver_id', userId)`
+  alongside the trigger, on the reasoning that a client-side filter would turn
+  "someone else's letter" into a clean not-found instead of a database
+  exception. But that filter made a *sender's* fold attempt match zero rows
+  before the trigger ever ran, so production would have returned "Letter not
+  found." while the mock, reimplementing the same rule in TypeScript, said
+  "Only the person it was written to can fold it." — the same behaviour,
+  worded two different ways, on a path the mock-only contract suite can never
+  reach because it never talks to a real trigger. The filter was dropped so
+  the trigger is the sole enforcement and the mapped copy the trigger produces
+  is what actually surfaces in production.
+- **`PaperTexture` gained an `ornament` slot**, and it's a containing-block
+  fix rather than a convenience. Decoration passed as an ordinary child
+  resolves against the padded inner content box and paints over the letter's
+  words, because a positioned descendant paints above in-flow text regardless
+  of source order; `ornament` renders before the padded wrapper so a folded
+  corner sits in the unpadded outer box instead.
+- **The public share page is excluded by construction, not by a check.**
+  `PublicLetter` never passes `ornament`, and its type is unchanged — nothing
+  in that path even has a slot to put a fold in. The contract suite's
+  existing `getBySlug` key-set assertion is what keeps this true going
+  forward: it would fail the day `acknowledgedAt` leaked into the public
+  shape, without anyone having to write a fold-specific test for it.
+
+**Not verified, and this matters more here than anywhere in this record.**
+Nobody on this project can see a rendered page — no task in this phase ran a
+browser. That leaves genuinely unchecked: whether the fold reads as a dog-ear
+at all rather than an unlabeled smudge, where it lands on the card and in the
+sheet, and the layout at 375px. The Supabase adapter's
+`setAcknowledged` has no test coverage and cannot get any here — the contract
+suite runs against the mock only, and the SQL behind the real trigger is
+unexecuted — so it is verified by reading the code, not by running it.
+
+A final whole-branch review found two more issues, both fixed in that pass
+rather than deferred. First: `toLetter` mapped `acknowledgedAt: r.acknowledged_at`
+straight from the wire row with no fallback. A wire row is not a type
+guarantee — if this client deploys before the SQL below runs, `select('*')`
+returns rows with no `acknowledged_at` key at all, so the field comes back
+`undefined`, and every `!== null` folded-check downstream reads `undefined`
+as truthy. The symptom would not have been "folding is broken": it would have
+been every letter, in every list and every modal, on both people's screens,
+showing a folded corner that nobody made — for the whole window between the
+two deploys. Fixed with `r.acknowledged_at ?? null`. Second: the toggle's
+accessible name flipped between "Fold the corner" and "Unfold the corner" at
+the same time `aria-pressed` flipped, so a screen reader announced a folded
+letter as "Unfold the corner, toggle button, pressed" — the double negation
+the ARIA authoring guidance warns against. Fixed by giving the button a
+stable `aria-label` and letting `aria-pressed` alone carry the state. The tap-target inconsistency noted in the same review (roughly
+30px against the 44px this record has cited elsewhere) was left as written —
+matching the three existing buttons beside it is still the right call, and
+that whole action row wants a pass at some point; see the carryover doc.
+
+**Migration status.** `supabase/schema.sql` and `supabase/policies.sql` carry
+the `acknowledged_at` column, the trigger's `is distinct from` clause, and the
+UPDATE column grant, and are idempotent by inspection. They have **not** been
+executed against the live project. Deploy order is not free here: **this SQL
+must run before this client deploys.** With the `?? null` fix above, a client
+deployed before the SQL simply shows no letters as folded and folding itself
+fails (the `update` targets a column that does not exist); without that fix,
+the same window would instead have shown every letter as folded. Either way,
+folding will not work until the migration runs — deploy the SQL first. Phases
+6, 7 and 8 also remain unapplied.
 
 ---
 

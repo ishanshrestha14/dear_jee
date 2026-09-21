@@ -46,6 +46,16 @@ alter table letters add column if not exists receiver_name text;
 alter table letters add column if not exists salutation text;
 alter table letters add column if not exists body_font  text;
 
+-- A quiet acknowledgment from the person the letter was written to: they fold
+-- the page's corner. Null means unfolded, which is every letter written before
+-- this existed — no backfill, for the same reason salutation and body_font
+-- were left null: a default would invent a gesture nobody made.
+--
+-- A timestamptz rather than a boolean because "when" is free and may matter
+-- later. Reversible, so it goes back to null; there is no separate "unfolded
+-- at", because the absence IS the state.
+alter table letters add column if not exists acknowledged_at timestamptz;
+
 -- body_font reaches a CSS font-family in the client, so the set is closed
 -- here as well as in TypeScript. This is the only one of the three validation
 -- layers a client cannot go around.
@@ -785,6 +795,21 @@ begin
   if new.is_read is distinct from old.is_read
      and auth.uid() is distinct from old.receiver_id then
     raise exception 'ONLY_RECEIVER_MAY_READ';
+  end if;
+
+  -- Folding is the recipient's gesture and nobody else's — not the writer's,
+  -- who may only find it. Modelled exactly on the is_read clause above, and
+  -- placed OUTSIDE the `current_user = 'authenticated'` wrapper below for the
+  -- same reason: no security definer function writes this column.
+  -- unlink_partner and freeze_profile_letters never touch it, so a folded
+  -- letter survives a breakup and its author's account deletion untouched.
+  --
+  -- `is distinct from`, never `<>`: null is the common value on BOTH sides
+  -- here, and `<>` against a null yields null, which is falsy in this `if` —
+  -- the guard would silently permit every fold it exists to reject.
+  if new.acknowledged_at is distinct from old.acknowledged_at
+     and auth.uid() is distinct from old.receiver_id then
+    raise exception 'ONLY_RECEIVER_MAY_ACKNOWLEDGE';
   end if;
 
   -- Each side owns its own archive and delete state and nobody else's —

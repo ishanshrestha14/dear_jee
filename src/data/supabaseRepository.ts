@@ -25,6 +25,7 @@ interface LetterRow {
   message: string
   created_at: string
   is_read: boolean
+  acknowledged_at: string | null
   share_slug: string | null
   is_public: boolean
   sender_name: string | null
@@ -55,6 +56,12 @@ const toLetter = (r: LetterRow): Letter => ({
   message: r.message,
   createdAt: r.created_at,
   isRead: r.is_read,
+  // A wire row is not a type guarantee: if this client deploys before the
+  // `acknowledged_at` column exists, `select('*')` omits the key entirely and
+  // this would otherwise be `undefined`, which every `!== null` folded-check
+  // downstream reads as truthy — every letter would render as folded. `salutation`
+  // and `body_font` have the same latent shape but degrade quietly; leave them.
+  acknowledgedAt: r.acknowledged_at ?? null,
   shareSlug: r.share_slug,
   isPublic: r.is_public,
   senderName: r.sender_name,
@@ -101,6 +108,8 @@ function letterErrorMessage(raw: string): string {
   if (raw.includes('IMMUTABLE_COLUMN')) return 'A sent letter cannot be edited.'
   if (raw.includes('SCHEDULED_FOR_PAST')) return 'That time has already passed.'
   if (raw.includes('ONLY_RECEIVER_MAY_READ')) return 'Only the person it was written to can open it.'
+  if (raw.includes('ONLY_RECEIVER_MAY_ACKNOWLEDGE'))
+    return 'Only the person it was written to can fold it.'
   if (raw.includes('new row violates')) return 'You are not connected to anyone yet.'
   if (raw.includes('row-level security')) return 'You do not have access to that letter.'
   if (raw.includes('violates check constraint')) return 'This letter is a little too long to send.'
@@ -304,6 +313,29 @@ export function createSupabaseRepositories(): {
         const { data, error } = await db
           .from('letters')
           .update(patch)
+          .eq('id', letterId)
+          .select()
+          .maybeSingle()
+        if (error) return fail(letterErrorMessage(error.message))
+        if (data === null) return fail('Letter not found.')
+        return ok(toLetter(data as LetterRow))
+      })
+    },
+
+    async setAcknowledged(letterId, _userId, acknowledged) {
+      return guard(async () => {
+        const at = acknowledged ? new Date().toISOString() : null
+        // No .eq('receiver_id', ...) here: the trigger is the SOLE
+        // enforcement. Filtering on it client-side would turn a sender's
+        // fold attempt into a bare "not found" instead of letting it reach
+        // enforce_letter_update, losing the explanation the mock gives for
+        // the identical case and making the ONLY_RECEIVER_MAY_ACKNOWLEDGE
+        // branch in letterErrorMessage unreachable. A non-participant is
+        // still stopped earlier, by letters_update_participant, and
+        // correctly gets "Letter not found." because for them it is.
+        const { data, error } = await db
+          .from('letters')
+          .update({ acknowledged_at: at })
           .eq('id', letterId)
           .select()
           .maybeSingle()
