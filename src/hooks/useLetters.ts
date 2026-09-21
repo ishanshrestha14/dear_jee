@@ -41,6 +41,11 @@ export interface UseLetters {
   sendHeld(id: string): Promise<{ ok: boolean; error?: string }>
   markRead(id: string): Promise<void>
   setArchived(id: string, archived: boolean): Promise<void>
+  /**
+   * Folds or unfolds a letter's corner. Only meaningful for a letter you
+   * received; the repository and the database both refuse anyone else.
+   */
+  setAcknowledged(id: string, acknowledged: boolean): Promise<{ ok: boolean; error?: string }>
   deleteForMe(id: string): Promise<void>
   setShared(id: string, shared: boolean): Promise<{ ok: boolean; error?: string }>
   editScheduled(
@@ -422,6 +427,51 @@ export function useLetters(): UseLetters {
     [userId, load, resetPagination],
   )
 
+  const setAcknowledgedFn = useCallback<UseLetters['setAcknowledged']>(
+    async (id, acknowledged) => {
+      if (userId === null) return { ok: false, error: 'You are not signed in.' }
+      mutating.current++
+      try {
+        // Optimistic, so the corner turns the instant it is pressed.
+        // lettersRef is written synchronously, BEFORE setLetters and never
+        // inside its updater — see markRead above for why: a functional
+        // updater is not guaranteed to run before the next line, and load()'s
+        // Promise.all can read lettersRef before React flushes it, especially
+        // under the mock's zero latency.
+        // Captured BEFORE the optimistic write, so a failure restores what was
+        // actually there. Recomputing the revert value instead would mean a
+        // failed UNFOLD reverts to null — erasing a fold the database still
+        // holds, which is the opposite of what a revert is for.
+        const previous = lettersRef.current.find((l) => l.id === id)?.acknowledgedAt ?? null
+        const at = acknowledged ? new Date().toISOString() : null
+        const optimistic = lettersRef.current.map((l) =>
+          l.id === id ? { ...l, acknowledgedAt: at } : l,
+        )
+        lettersRef.current = optimistic
+        setLetters(optimistic)
+
+        const result = await letterRepository.setAcknowledged(id, userId, acknowledged)
+        if (result.error !== null) {
+          const reverted = lettersRef.current.map((l) =>
+            l.id === id ? { ...l, acknowledgedAt: previous } : l,
+          )
+          lettersRef.current = reverted
+          setLetters(reverted)
+          // Deliberately NOT setError: the routes early-return on a
+          // page-level error, which would replace the whole grid with one
+          // line of text over a failed corner fold and leave no UI able to
+          // clear it. Same reasoning as setShared below. The caller puts this
+          // in the toast.
+          return { ok: false, error: result.error }
+        }
+        return { ok: true }
+      } finally {
+        mutating.current--
+      }
+    },
+    [userId],
+  )
+
   const deleteForMe = useCallback<UseLetters['deleteForMe']>(
     async (id) => {
       if (userId === null) return
@@ -512,6 +562,7 @@ export function useLetters(): UseLetters {
     sendHeld: sendHeldFn,
     markRead,
     setArchived: setArchivedFn,
+    setAcknowledged: setAcknowledgedFn,
     deleteForMe,
     setShared: setSharedFn,
     editScheduled: editScheduledFn,
