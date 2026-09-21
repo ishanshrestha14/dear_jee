@@ -10,6 +10,7 @@ function letter(id: string, senderId: string, overrides: Partial<Letter> = {}): 
     message: 'x',
     createdAt: '2026-01-01T00:00:00.000Z',
     isRead: false,
+    acknowledgedAt: null,
     shareSlug: null,
     isPublic: false,
     senderName: null,

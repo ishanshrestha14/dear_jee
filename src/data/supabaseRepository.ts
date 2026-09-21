@@ -25,6 +25,7 @@ interface LetterRow {
   message: string
   created_at: string
   is_read: boolean
+  acknowledged_at: string | null
   share_slug: string | null
   is_public: boolean
   sender_name: string | null
@@ -55,6 +56,7 @@ const toLetter = (r: LetterRow): Letter => ({
   message: r.message,
   createdAt: r.created_at,
   isRead: r.is_read,
+  acknowledgedAt: r.acknowledged_at,
   shareSlug: r.share_slug,
   isPublic: r.is_public,
   senderName: r.sender_name,
@@ -101,6 +103,8 @@ function letterErrorMessage(raw: string): string {
   if (raw.includes('IMMUTABLE_COLUMN')) return 'A sent letter cannot be edited.'
   if (raw.includes('SCHEDULED_FOR_PAST')) return 'That time has already passed.'
   if (raw.includes('ONLY_RECEIVER_MAY_READ')) return 'Only the person it was written to can open it.'
+  if (raw.includes('ONLY_RECEIVER_MAY_ACKNOWLEDGE'))
+    return 'Only the person it was written to can fold it.'
   if (raw.includes('new row violates')) return 'You are not connected to anyone yet.'
   if (raw.includes('row-level security')) return 'You do not have access to that letter.'
   if (raw.includes('violates check constraint')) return 'This letter is a little too long to send.'
@@ -305,6 +309,26 @@ export function createSupabaseRepositories(): {
           .from('letters')
           .update(patch)
           .eq('id', letterId)
+          .select()
+          .maybeSingle()
+        if (error) return fail(letterErrorMessage(error.message))
+        if (data === null) return fail('Letter not found.')
+        return ok(toLetter(data as LetterRow))
+      })
+    },
+
+    async setAcknowledged(letterId, userId, acknowledged) {
+      return guard(async () => {
+        const at = acknowledged ? new Date().toISOString() : null
+        // .eq('receiver_id', userId) is belt to the trigger's braces: the
+        // trigger is the real enforcement, but matching on it here turns
+        // "someone else's letter" into a clean not-found rather than a
+        // database exception surfaced as prose.
+        const { data, error } = await db
+          .from('letters')
+          .update({ acknowledged_at: at })
+          .eq('id', letterId)
+          .eq('receiver_id', userId)
           .select()
           .maybeSingle()
         if (error) return fail(letterErrorMessage(error.message))

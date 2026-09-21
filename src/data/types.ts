@@ -19,6 +19,12 @@ export interface Letter {
   message: string
   createdAt: string
   isRead: boolean
+  /**
+   * When the recipient folded the corner — a quiet acknowledgment, theirs
+   * alone to give and to take back. Null means unfolded, which is every
+   * letter written before this existed.
+   */
+  acknowledgedAt: string | null
   shareSlug: string | null
   isPublic: boolean
   /** Set only when the profile is deleted, freezing the name as it then was. */
@@ -174,6 +180,16 @@ export interface LetterRepository {
   markRead(letterId: string): Promise<Result<Letter>>
   /** Archives or unarchives for the calling user only. */
   setArchived(letterId: string, userId: string, archived: boolean): Promise<Result<Letter>>
+  /**
+   * Folds or unfolds the corner. Only the letter's RECEIVER may do this —
+   * the writer can see the fold but not make one.
+   *
+   * Takes a userId, like setArchived and deleteForMe and unlike setShared,
+   * so the mock can reimplement the rule the database enforces in
+   * enforce_letter_update. setShared not taking one is a recorded wart, not
+   * a pattern to copy.
+   */
+  setAcknowledged(letterId: string, userId: string, acknowledged: boolean): Promise<Result<Letter>>
   /** Removes the letter from this user's side only. Permanent. */
   deleteForMe(letterId: string, userId: string): Promise<Result<Letter>>
   /**

@@ -111,6 +111,7 @@ function seedLetters(): Letter[] {
     senderId: MOCK_PARTNER_ID,
     receiverId: MOCK_USER_ID,
     isRead: false,
+    acknowledgedAt: null,
     shareSlug: null,
     isPublic: false,
     senderName: null,
@@ -354,6 +355,20 @@ export function createMockRepositories(options: MockOptions = {}): {
       return ok({ ...letter })
     },
 
+    async setAcknowledged(letterId, userId, acknowledged) {
+      const letter = letters.find((l) => l.id === letterId)
+      if (!letter) return fail('Letter not found.')
+      if (!visibleTo(letter, userId)) return fail('Letter not found.')
+      // The mock has no RLS. This reimplements enforce_letter_update's
+      // ONLY_RECEIVER_MAY_ACKNOWLEDGE clause: folding is the recipient's
+      // gesture and nobody else's, the writer's included.
+      if (letter.receiverId !== userId) {
+        return fail('Only the person it was written to can fold it.')
+      }
+      letter.acknowledgedAt = acknowledged ? new Date().toISOString() : null
+      return ok({ ...letter })
+    },
+
     async deleteForMe(letterId, userId) {
       const letter = letters.find((l) => l.id === letterId)
       if (!letter) return fail('Letter not found.')
@@ -397,6 +412,7 @@ export function createMockRepositories(options: MockOptions = {}): {
         message: message.trim(),
         createdAt: now,
         isRead: false,
+        acknowledgedAt: null,
         shareSlug: null,
         isPublic: false,
         senderName: null,
