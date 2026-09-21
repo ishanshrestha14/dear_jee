@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion'
 import { PaperTexture } from '../design/PaperTexture'
+import { FoldedCorner } from '../design/FoldedCorner'
 import { fontStack } from '../design/letterFonts'
 import { formatLetterDate, snippet } from '../lib/format'
 import type { Letter } from '../data/types'
@@ -26,7 +27,10 @@ export function LetterCard({ letter, authorName, unread, onOpen }: LetterCardPro
       whileHover={{ boxShadow: 'var(--shadow-letter-lifted)' }}
       className="w-full rounded-letter text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
     >
-      <PaperTexture className="p-6 sm:p-7">
+      <PaperTexture
+        className="p-6 sm:p-7"
+        ornament={letter.acknowledgedAt !== null ? <FoldedCorner /> : null}
+      >
         <div className="flex items-start justify-between gap-4">
           <span className="font-hand text-2xl text-ink-ui">{authorName}</span>
           {unread && (

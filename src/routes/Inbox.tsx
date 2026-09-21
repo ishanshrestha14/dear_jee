@@ -33,6 +33,7 @@ export default function Inbox() {
     deleteForMe,
     setShared,
     sendHeld,
+    setAcknowledged,
   } = useLettersContext()
   const { userId, profile } = useAuth()
   const { past, acknowledgeEnd } = useBonds()
@@ -452,6 +453,17 @@ export default function Inbox() {
             authorName={authorOf(open)}
             recipientName={recipientOf(open)}
             archived={false}
+            folded={open.acknowledgedAt !== null}
+            onFold={
+              open.receiverId === userId
+                ? () => {
+                    void (async () => {
+                      const result = await setAcknowledged(open.id, open.acknowledgedAt === null)
+                      if (!result.ok) setToast({ message: result.error ?? 'That did not work.' })
+                    })()
+                  }
+                : undefined
+            }
             trapActive={sharingId === null}
             onClose={closeLetter}
             onArchive={() => {

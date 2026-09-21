@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Archive, ArchiveRestore, Share2, Trash2, X } from 'lucide-react'
 import { PaperTexture } from '../design/PaperTexture'
+import { FoldedCorner, FoldGlyph } from '../design/FoldedCorner'
 import { LetterSheet } from './LetterSheet'
 import type { Letter } from '../data/types'
 
@@ -17,6 +18,13 @@ interface LetterModalProps {
    * Delete stay: both concern your own copy.
    */
   readOnly?: boolean
+  /** Whether this letter's corner is currently turned down. */
+  folded: boolean
+  /**
+   * Folds or unfolds. Absent means no control — the writer, the archive and a
+   * past chapter all see the fold but cannot change it.
+   */
+  onFold?: () => void
   trapActive: boolean
   onClose: () => void
   onArchive: () => void
@@ -38,6 +46,8 @@ export function LetterModal({
   recipientName,
   archived,
   readOnly = false,
+  folded,
+  onFold,
   trapActive,
   onClose,
   onArchive,
@@ -135,7 +145,7 @@ export function LetterModal({
         transition={{ type: 'spring', stiffness: 210, damping: 26 }}
         className="relative w-full max-w-[600px] focus:outline-none"
       >
-        <PaperTexture className="p-8 sm:p-12">
+        <PaperTexture className="p-8 sm:p-12" ornament={folded ? <FoldedCorner /> : null}>
           {/*
             Close lives as an overlay above LetterSheet (not inside it —
             LetterSheet is the letter's own content, shared with the public
@@ -188,6 +198,21 @@ export function LetterModal({
               </>
             ) : (
               <>
+                {onFold !== undefined && (
+                  <motion.button
+                    type="button"
+                    onClick={onFold}
+                    aria-pressed={folded}
+                    aria-label={folded ? 'Unfold the corner' : 'Fold the corner'}
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.95 }}
+                    className={`rounded-full p-1.5 transition-colors ${
+                      folded ? 'text-accent' : 'text-ink-muted hover:text-accent'
+                    }`}
+                  >
+                    <FoldGlyph />
+                  </motion.button>
+                )}
                 <motion.button
                   type="button"
                   onClick={onShare}
