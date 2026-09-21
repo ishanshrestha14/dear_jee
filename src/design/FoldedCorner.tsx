@@ -38,27 +38,3 @@ export function FoldedCorner() {
     </svg>
   )
 }
-
-/**
- * The same shape at icon size, for the toggle that makes it. Sized 18 to sit
- * with the lucide icons already in the modal's action row, and stroked rather
- * than filled so it reads as an outline control rather than a filled state.
- */
-export function FoldGlyph() {
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 18 18"
-      width="18"
-      height="18"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M2.5 2.5 H15.5 V15.5 H8 L2.5 10 Z" />
-      <path d="M8 15.5 V10 H2.5" />
-    </svg>
-  )
-}

@@ -333,6 +333,18 @@ bond, at which point it joins that chapter.
   screen linked to `/chapters` — the only route into a correspondence that
   had already ended.
 
+**Changed after looking at it.** The control began as a small fold glyph
+matching the mark it makes. Seen in the browser, the mark read well and the
+glyph did not — it showed the result without saying what pressing it meant.
+It is now a heart, outline when untouched and filled when loved, labelled
+"Love this letter"; the turned-down corner stays exactly as it was. The heart
+is the verb, the fold is the trace. This is not the chat reaction decision 1
+rejected: that decision refused a VOCABULARY of named feelings, and one heart
+is still the single wordless gesture it chose — nothing is rendered on the
+letter itself. The fill is deliberately unanimated, because a heart that pops
+is the instinct this app keeps declining and would need a reduced-motion
+story the button's existing tap-scale already provides.
+
 **Migration status.** `supabase/schema.sql` and `supabase/policies.sql` carry
 the `bonds` table, the chapter-scoping changes, and the narrowed
 `receiver_id` trigger, and are idempotent by inspection. Applying them to the
@@ -627,8 +639,7 @@ accessible name flipped between "Fold the corner" and "Unfold the corner" at
 the same time `aria-pressed` flipped, so a screen reader announced a folded
 letter as "Unfold the corner, toggle button, pressed" — the double negation
 the ARIA authoring guidance warns against. Fixed by giving the button a
-stable `aria-label="Fold the corner"` and letting `aria-pressed` alone carry
-the state. The tap-target inconsistency noted in the same review (roughly
+stable `aria-label` and letting `aria-pressed` alone carry the state. The tap-target inconsistency noted in the same review (roughly
 30px against the 44px this record has cited elsewhere) was left as written —
 matching the three existing buttons beside it is still the right call, and
 that whole action row wants a pass at some point; see the carryover doc.

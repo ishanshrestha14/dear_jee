@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Archive, ArchiveRestore, Share2, Trash2, X } from 'lucide-react'
+import { Archive, ArchiveRestore, Heart, Share2, Trash2, X } from 'lucide-react'
 import { PaperTexture } from '../design/PaperTexture'
-import { FoldedCorner, FoldGlyph } from '../design/FoldedCorner'
+import { FoldedCorner } from '../design/FoldedCorner'
 import { LetterSheet } from './LetterSheet'
 import type { Letter } from '../data/types'
 
@@ -203,14 +203,25 @@ export function LetterModal({
                     type="button"
                     onClick={onFold}
                     aria-pressed={folded}
-                    aria-label="Fold the corner"
+                    aria-label="Love this letter"
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.95 }}
                     className={`rounded-full p-1.5 transition-colors ${
                       folded ? 'text-accent' : 'text-ink-muted hover:text-accent'
                     }`}
                   >
-                    <FoldGlyph />
+                    {/*
+                      The heart is the verb; the turned-down corner it leaves on
+                      the page is the trace. Filled when loved, outline when not
+                      — the state has to survive without colour, since text-accent
+                      alone would not reach a low-vision reader, and aria-pressed
+                      carries it for a screen reader.
+
+                      No animation on the fill: a heart that pops is the chat-app
+                      instinct this app keeps declining, and it would need a
+                      reduced-motion story the whileTap scale already provides.
+                    */}
+                    <Heart size={18} fill={folded ? 'currentColor' : 'none'} />
                   </motion.button>
                 )}
                 <motion.button

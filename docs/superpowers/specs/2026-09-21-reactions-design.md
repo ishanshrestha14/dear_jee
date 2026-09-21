@@ -165,8 +165,23 @@ rather than `setArchived`:
 ## The gesture
 
 **The control is a button in the modal's action row**, beside Archive, Delete
-and Share. It reads "Fold the corner", and "Unfold" once folded — plain and
-physical, in the voice that already says "Move back" for un-archiving.
+and Share — a heart, outline when untouched and filled when loved, labelled
+"Love this letter".
+
+**The heart is the verb; the turned-down corner is its trace.** Revised after
+looking at the built feature: the corner mark reads well on the page, but a
+fold glyph on the button did not say what pressing it meant. A heart does.
+Note this does not reverse decision 1, which rejected "a small fixed
+vocabulary" of named feelings as the chat reaction bar in nicer clothes — one
+heart is not a vocabulary, it is still exactly the single wordless gesture
+decision 1 chose. What changed is only how the control names that gesture.
+
+Rejected, deliberately: rendering a heart ON the letter. That is the chat
+reaction this app keeps declining, and it would put an emoji on a page whose
+whole design argument is restraint. What the reader leaves behind is still a
+dog-eared corner. Also rejected: animating the fill, which would need a
+reduced-motion story the existing `whileTap` scale already provides, and
+would read as a like-button pop.
 
 Rejected: tapping the corner itself, which is the prettier interaction but puts
 a ~28px target below the 44px minimum Phase 7 established, and `CLAUDE.md`
