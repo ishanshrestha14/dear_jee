@@ -56,7 +56,12 @@ const toLetter = (r: LetterRow): Letter => ({
   message: r.message,
   createdAt: r.created_at,
   isRead: r.is_read,
-  acknowledgedAt: r.acknowledged_at,
+  // A wire row is not a type guarantee: if this client deploys before the
+  // `acknowledged_at` column exists, `select('*')` omits the key entirely and
+  // this would otherwise be `undefined`, which every `!== null` folded-check
+  // downstream reads as truthy — every letter would render as folded. `salutation`
+  // and `body_font` have the same latent shape but degrade quietly; leave them.
+  acknowledgedAt: r.acknowledged_at ?? null,
   shareSlug: r.share_slug,
   isPublic: r.is_public,
   senderName: r.sender_name,

@@ -812,6 +812,16 @@ The `whileHover`/`whileTap` values match the Share and Archive buttons beside
 it exactly — and they animate through the single `<MotionConfig>` in
 `App.tsx`, so do not add any reduced-motion guard here.
 
+**Corrected during the final whole-branch review:** the `aria-label` above
+flips between "Fold the corner" and "Unfold the corner" at the same time
+`aria-pressed` flips, so a folded letter would announce as "Unfold the
+corner, toggle button, pressed" — name and state contradicting each other,
+the double negation ARIA toggle-button guidance warns against. The shipped
+code keeps `aria-pressed={folded}` but uses a stable
+`aria-label="Fold the corner"`, so the state is carried by `aria-pressed`
+alone. This step is left as originally written for the record; it is the
+plan's defect, not the implementer's.
+
 - [ ] **Step 5: Wire the archive and chapter call sites**
 
 `src/routes/Archive.tsx` and `src/routes/Chapter.tsx` each render a

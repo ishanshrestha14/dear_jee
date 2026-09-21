@@ -613,25 +613,36 @@ sheet, and the layout at 375px. The Supabase adapter's
 suite runs against the mock only, and the SQL behind the real trigger is
 unexecuted — so it is verified by reading the code, not by running it.
 
-Two more findings came from this review, not from the implementer, and both
-were deferred rather than fixed: the toggle's accessible name flips between
-"Fold the corner" and "Unfold the corner" at the same time `aria-pressed`
-flips, so a screen reader announces a folded letter as "Unfold the corner,
-toggle button, pressed" — the double negation the ARIA authoring guidance
-warns against. And the toggle's tap target is roughly 30px, not the 44px this
-same record has cited elsewhere as the reason controls don't live on the
-corner glyph itself — so that stated rationale is now internally
-inconsistent with this one control. Matching the three existing buttons
-beside it was still the right call; widening one of four would have been
-worse than leaving all four narrow.
+A final whole-branch review found two more issues, both fixed in that pass
+rather than deferred. First: `toLetter` mapped `acknowledgedAt: r.acknowledged_at`
+straight from the wire row with no fallback. A wire row is not a type
+guarantee — if this client deploys before the SQL below runs, `select('*')`
+returns rows with no `acknowledged_at` key at all, so the field comes back
+`undefined`, and every `!== null` folded-check downstream reads `undefined`
+as truthy. The symptom would not have been "folding is broken": it would have
+been every letter, in every list and every modal, on both people's screens,
+showing a folded corner that nobody made — for the whole window between the
+two deploys. Fixed with `r.acknowledged_at ?? null`. Second: the toggle's
+accessible name flipped between "Fold the corner" and "Unfold the corner" at
+the same time `aria-pressed` flipped, so a screen reader announced a folded
+letter as "Unfold the corner, toggle button, pressed" — the double negation
+the ARIA authoring guidance warns against. Fixed by giving the button a
+stable `aria-label="Fold the corner"` and letting `aria-pressed` alone carry
+the state. The tap-target inconsistency noted in the same review (roughly
+30px against the 44px this record has cited elsewhere) was left as written —
+matching the three existing buttons beside it is still the right call, and
+that whole action row wants a pass at some point; see the carryover doc.
 
 **Migration status.** `supabase/schema.sql` and `supabase/policies.sql` carry
 the `acknowledged_at` column, the trigger's `is distinct from` clause, and the
 UPDATE column grant, and are idempotent by inspection. They have **not** been
-executed against the live project. Deploy order is not free here: this SQL
-must run before this client deploys, because a client updating a column the
-database does not yet have fails the whole update — every fold would fail,
-not just the acknowledgment. Phases 6, 7 and 8 also remain unapplied.
+executed against the live project. Deploy order is not free here: **this SQL
+must run before this client deploys.** With the `?? null` fix above, a client
+deployed before the SQL simply shows no letters as folded and folding itself
+fails (the `update` targets a column that does not exist); without that fix,
+the same window would instead have shown every letter as folded. Either way,
+folding will not work until the migration runs — deploy the SQL first. Phases
+6, 7 and 8 also remain unapplied.
 
 ---
 

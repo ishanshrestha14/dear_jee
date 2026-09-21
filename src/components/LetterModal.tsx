@@ -203,7 +203,7 @@ export function LetterModal({
                     type="button"
                     onClick={onFold}
                     aria-pressed={folded}
-                    aria-label={folded ? 'Unfold the corner' : 'Fold the corner'}
+                    aria-label="Fold the corner"
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.95 }}
                     className={`rounded-full p-1.5 transition-colors ${

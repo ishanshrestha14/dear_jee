@@ -174,6 +174,16 @@ records a whole class of defect from controls that look inert. The corner is
 the result; the button is the control, exactly as archiving is a button whose
 result is the letter moving.
 
+**Noted during the final whole-branch review:** the 44px argument above does
+not survive its own implementation — the shipped button is `p-1.5` around an
+18px glyph, roughly 30px, matching the three buttons beside it, not 44px. The
+conclusion still stands (a button in the action row is right; widening one of
+four would have been worse than leaving all four narrow), but the stated
+reason for rejecting the corner-tap alternative is internally inconsistent
+with what shipped. The original reasoning is left as written; the whole
+action row wants a tap-target pass at some point (see the Phase 3 carryover
+doc).
+
 **The button renders only when `letter.receiverId === userId`**, so the UI and
 the trigger agree by construction.
 
