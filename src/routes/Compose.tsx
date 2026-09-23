@@ -5,6 +5,7 @@ import { ComposeLetter } from '../components/ComposeLetter'
 import { useDraft } from '../hooks/useDraft'
 import { useLettersContext } from '../hooks/LettersProvider'
 import { formatLetterDate } from '../lib/format'
+import type { BodyFont } from '../lib/validation'
 
 export default function Compose() {
   const { partnerName, loading, sendLetter, editScheduled, scheduled } = useLettersContext()
@@ -30,6 +31,29 @@ export default function Compose() {
     setNoticeShown(false)
     setFreshCount((n) => n + 1)
   }, [clear])
+
+  // Wraps `save` so the notice hides itself the moment the composer's
+  // content diverges from what was restored, rather than staying on screen
+  // with a stale date for the whole session. ComposeLetter's reporting
+  // effect fires once on mount with the restored values UNCHANGED, so that
+  // first call compares equal here and does not hide the notice — only a
+  // real edit does. Identity must stay stable (useCallback): ComposeLetter's
+  // effect depends on this function, and `restored`/`save` are themselves
+  // stable, so this only changes if the hook's own dependencies change.
+  const handleDraftChange = useCallback(
+    (draft: { message: string; salutation: string; bodyFont: BodyFont | null }) => {
+      if (
+        restored !== null &&
+        (draft.message !== restored.message ||
+          draft.salutation !== restored.salutation ||
+          draft.bodyFont !== restored.bodyFont)
+      ) {
+        setNoticeShown(false)
+      }
+      save(draft)
+    },
+    [restored, save],
+  )
 
   const editId = searchParams.get('edit')
   // Undefined while the id doesn't resolve to one of the caller's own
@@ -93,7 +117,7 @@ export default function Compose() {
           <button
             type="button"
             onClick={startFresh}
-            className="font-ui text-sm text-accent underline underline-offset-4"
+            className="font-ui text-sm text-ink-muted underline underline-offset-4 transition-colors hover:text-accent"
           >
             Start fresh
           </button>
@@ -106,7 +130,7 @@ export default function Compose() {
         initialMessage={freshCount === 0 ? (restored?.message ?? '') : ''}
         initialSalutation={freshCount === 0 ? (restored?.salutation ?? '') : ''}
         initialBodyFont={freshCount === 0 ? (restored?.bodyFont ?? null) : null}
-        onDraftChange={save}
+        onDraftChange={handleDraftChange}
         onCancel={() => {
           // Discarding must also throw away what was saved, or the letter they
           // just discarded is waiting for them next time.

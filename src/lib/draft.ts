@@ -65,6 +65,10 @@ export function readDraft(storage: StorageLike, userId: string): LetterDraft | n
   if (typeof candidate.message !== 'string') return null
   if (typeof candidate.salutation !== 'string') return null
   if (typeof candidate.savedAt !== 'string') return null
+  // A string that isn't a parseable date renders the notice as "Unsent, from
+  // Invalid Date." — reject it here so a hand-edited or corrupted entry never
+  // reaches that far.
+  if (Number.isNaN(Date.parse(candidate.savedAt))) return null
 
   const font = candidate.bodyFont
   if (font !== null && typeof font !== 'string') return null

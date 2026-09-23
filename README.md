@@ -719,9 +719,15 @@ out.
 - **`readDraft` validates rather than trusts.** `localStorage` is
   user-writable and outlives deploys, so a stored entry is an untrusted string
   from an unknown version of this app. Anything that isn't an object with a
-  string `message`, a string `salutation`, a string `savedAt`, and a
-  `bodyFont` that passes the existing `validateBodyFont` reads back as no
-  draft at all, rather than a crash or a garbled composer.
+  string `message`, a string `salutation`, a string `savedAt` that parses as a
+  date, and a `bodyFont` that passes the existing `validateBodyFont` reads
+  back as no draft at all, rather than a crash or a garbled composer.
+- **The spec's four-file table became five.** `src/hooks/useDraft.ts` holds
+  the debounce, the unmount and tab-close flush, the suppression flag, and the
+  `savedAt`-preservation logic — around 50 lines of timing behaviour the plan
+  judged did not belong inlined into a route component. `Compose.tsx` wires
+  the hook up and owns the notice; `useDraft.ts` owns everything about
+  *when* a draft actually gets written.
 
 **Found by review — the two defects are the most interesting part of this
 phase:**
@@ -744,16 +750,40 @@ phase:**
 
 **Not verified.** Nobody ran a browser for this phase. The notice's wording,
 its placement above the paper, and the layout at 375px are all unverified.
-The debounce, the unmount flush, the suppression flag, and the whole of
+The debounce, the flush paths, the suppression flag, and the whole of
 `Compose.tsx`'s wiring have no automated coverage, because this repo has no
-component or hook tests and this phase did not add the first ones — the 16
-new tests cover `src/lib/draft.ts` only. Two minor findings were recorded and
-deferred rather than fixed: `useDraft`'s `lastContent`/`lastSavedAt` are not
-reset by `clear()` — inert today, because a blank message routes to
-`clearDraft` rather than `writeDraft`, but fragile if blank drafts were ever
-persisted — and two tests in `draft.test.ts` are narrower than their names
-suggest (the "missing or not a string" test only exercises the wrong-type
-case; the "non-object" test covers JSON `null` but not arrays or primitives).
+component or hook tests and this phase did not add the first ones — the tests
+cover `src/lib/draft.ts` only. Review found four minor findings in total.
+Two were test-name gaps in `draft.test.ts` narrower than their names
+suggested (the "missing or not a string" test only exercised the wrong-type
+case, not a genuinely absent key; the "non-object" test covered JSON `null`
+but not arrays or primitives) — both are fixed now, with the missing-key and
+array/primitive cases added alongside a new test for an unparseable
+`savedAt`. The other two are recorded rather than fixed: `useDraft`'s
+`lastContent`/`lastSavedAt` are not reset by `clear()` — confirmed safe by a
+comment at the call site, since a blank message routes to `clearDraft` rather
+than `writeDraft` and `startFresh` remounts the hook anyway, but still worth
+a reader's second look before trusting on sight — and `Compose.tsx`'s return
+block has grown to around 25 lines carrying both the notice and the composer.
+
+**Fix wave (post-review).** Two Important findings from the whole-branch
+review were fixed. First, the debounce only ever flushed on React unmount,
+which is in-app navigation — browsers do not run effect cleanups on an actual
+tab close, so a real close or reload within 600ms of the last keystroke lost
+that text, and iOS Safari backgrounds and discards tabs rather than
+unmounting them as its normal path. `useDraft.ts` now also flushes on
+`pagehide` and on `visibilitychange` going to `'hidden'`, and a new
+`MAX_DEBOUNCE_MS` ceiling (5s) guarantees a write lands within a few seconds
+of the *first* unsaved keystroke even if someone types fast enough to keep
+resetting the 600ms debounce indefinitely. Second, the restore notice was
+shown for the whole session once `restored` was non-null at mount, with no
+way for it to go stale — so a person who restored a draft and then wrote ten
+new minutes over it still saw "Unsent, from &lt;original date&gt;." next to a
+"Start fresh" button that would silently discard the new words with no
+confirmation, unlike the adjacent cancel flow's deliberate "Discard this
+letter?" prompt. `Compose.tsx` now hides the notice itself the moment the
+composer's content diverges from `restored`, via a stable `useCallback`
+wrapper around `save` that ComposeLetter's reporting effect depends on.
 
 **Migration status.** There is no SQL in this phase at all — nothing to
 apply. That is the first time that has been true in this project.

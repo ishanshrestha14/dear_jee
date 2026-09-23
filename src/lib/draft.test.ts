@@ -65,15 +65,27 @@ describe('readDraft / writeDraft', () => {
   })
 
   it('reads a non-object as no draft', () => {
-    const { storage } = fakeStorage({ 'dearjee:draft:user-a': 'null' })
-    expect(readDraft(storage, 'user-a')).toBeNull()
+    const nullCase = fakeStorage({ 'dearjee:draft:user-a': 'null' })
+    expect(readDraft(nullCase.storage, 'user-a')).toBeNull()
+
+    const arrayCase = fakeStorage({ 'dearjee:draft:user-a': JSON.stringify([1, 2, 3]) })
+    expect(readDraft(arrayCase.storage, 'user-a')).toBeNull()
+
+    const primitiveCase = fakeStorage({ 'dearjee:draft:user-a': JSON.stringify('just a string') })
+    expect(readDraft(primitiveCase.storage, 'user-a')).toBeNull()
   })
 
   it('rejects an entry whose message is missing or not a string', () => {
-    const { storage } = fakeStorage({
+    const wrongType = fakeStorage({
       'dearjee:draft:user-a': JSON.stringify({ ...draft, message: 42 }),
     })
-    expect(readDraft(storage, 'user-a')).toBeNull()
+    expect(readDraft(wrongType.storage, 'user-a')).toBeNull()
+
+    const { message: _message, ...withoutMessage } = draft
+    const missingKey = fakeStorage({
+      'dearjee:draft:user-a': JSON.stringify(withoutMessage),
+    })
+    expect(readDraft(missingKey.storage, 'user-a')).toBeNull()
   })
 
   it('rejects an entry whose salutation is not a string', () => {
@@ -86,6 +98,13 @@ describe('readDraft / writeDraft', () => {
   it('rejects an entry whose savedAt is not a string', () => {
     const { storage } = fakeStorage({
       'dearjee:draft:user-a': JSON.stringify({ ...draft, savedAt: 0 }),
+    })
+    expect(readDraft(storage, 'user-a')).toBeNull()
+  })
+
+  it('rejects an entry whose savedAt is a string that does not parse as a date', () => {
+    const { storage } = fakeStorage({
+      'dearjee:draft:user-a': JSON.stringify({ ...draft, savedAt: 'not a date' }),
     })
     expect(readDraft(storage, 'user-a')).toBeNull()
   })
