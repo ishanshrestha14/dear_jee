@@ -63,6 +63,24 @@ swap was a one-line change.
 
 # Build record
 
+**Live database state, 2026-09-23.** `schema.sql` and `policies.sql` were run
+against the live Supabase project on that date, in that order, and the app was
+confirmed working afterwards — inbox, sign-up and sending all exercised. That
+covers every migration Phases 6, 7, 8 and 11 describe. The per-phase
+"migration status" paragraphs below record what was true when each phase was
+written, which is why several of them say the SQL was unexecuted; they are
+history, not current status. This line is the current status.
+
+One caveat that belongs with it: `schema.sql` drops
+`letters_select_participant` so it can change `scheduled_for`'s column type,
+and deliberately does not recreate it — only `policies.sql` does. Between the
+two files the `letters` table is deny-all. That is fail-closed, not a leak,
+but the two files are one migration and must be run together.
+
+Still unapplied, because they live on the unmerged `phase-10-letter-themes`
+branch rather than here: that phase's `theme` column, and Phase 9's
+`letters_bond_created_idx`.
+
 Each phase was specified, planned task-by-task, implemented by a fresh agent
 per task, and reviewed twice — once per task, once across the whole branch.
 Reviews found real defects in every phase; the notable ones are recorded below
@@ -256,7 +274,7 @@ letter is the most likely way a real page breaks at 375px. It reports; it
 fixes nothing. Nobody on this project can see a rendered page, and that
 verdict needs a phone.
 
-## Phase 6 — Bonds and chapters *(complete, migration pending)*
+## Phase 6 — Bonds and chapters *(complete, migration applied)*
 
 A relationship became a row. `profiles.partner_id` used to be the whole model
 of a relationship: it could say who you are with and nothing else — not that
@@ -353,7 +371,7 @@ is the owner's step and had not been run as of this record. Until it is, the
 app continues to run on the mock in development and the pre-Phase-6 schema in
 production.
 
-## Phase 7 — Composer, live delivery, and a reading view *(complete, migration pending)*
+## Phase 7 — Composer, live delivery, and a reading view *(complete, migration applied)*
 
 A letter gained a voice and a face, and the inbox stopped needing a reload.
 `letters.salutation` and `letters.body_font` are both nullable, and null means
@@ -421,7 +439,7 @@ widened return type — the function is dropped and recreated rather than
 idempotent by inspection. Applying them to the live project is the owner's
 step and had not been run as of this record.
 
-## Phase 8 — Scheduled delivery *(complete, migration pending)*
+## Phase 8 — Scheduled delivery *(complete, migration applied)*
 
 A letter can now be written for a date that hasn't arrived yet. `scheduled_for`
 is a nullable `date` column; null means deliver now, exactly what every
@@ -545,7 +563,7 @@ feed rather than a "load more" button.
   effect until the next render; two calls in one tick would both pass it. It
   is a ref.
 
-## Phase 11 — Reactions *(complete, migration pending)*
+## Phase 11 — Reactions *(complete, migration applied)*
 
 The person a letter was written to can now fold its corner — one quiet,
 wordless acknowledgment, found by the writer later rather than announced to
