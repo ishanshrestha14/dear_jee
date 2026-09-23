@@ -24,9 +24,7 @@ function browserStorage(): StorageLike | null {
  * effect would be a silent no-op.
  */
 export function useDraft(userId: string | null) {
-  const storageRef = useRef<StorageLike | null>(null)
-  if (storageRef.current === null) storageRef.current = browserStorage()
-  const storage = storageRef.current
+  const [storage] = useState<StorageLike | null>(() => browserStorage())
 
   const [restored] = useState<LetterDraft | null>(() =>
     storage === null || userId === null ? null : readDraft(storage, userId),
@@ -38,6 +36,19 @@ export function useDraft(userId: string | null) {
   // Without this, discarding a letter would save the very words the person
   // just threw away, and they would be waiting in the composer next time.
   const suppressed = useRef(false)
+
+  // The content (not the timestamp) of the last draft that was persisted or
+  // restored. ComposeLetter's reporting effect fires once on mount with the
+  // restored values themselves, so without this, `save` would stamp a fresh
+  // `savedAt` on every visit even when nobody typed anything — and the
+  // notice would drift to showing when the composer was last OPENED rather
+  // than when it was last WRITTEN in.
+  const lastContent = useRef<Omit<LetterDraft, 'savedAt'> | null>(
+    restored === null
+      ? null
+      : { message: restored.message, salutation: restored.salutation, bodyFont: restored.bodyFont },
+  )
+  const lastSavedAt = useRef<string | null>(restored?.savedAt ?? null)
 
   const flush = useCallback(() => {
     if (timer.current !== null) {
@@ -56,7 +67,17 @@ export function useDraft(userId: string | null) {
     (draft: Omit<LetterDraft, 'savedAt'>) => {
       if (storage === null || userId === null) return
       suppressed.current = false
-      pending.current = { ...draft, savedAt: new Date().toISOString() }
+      const last = lastContent.current
+      const unchanged =
+        last !== null &&
+        last.message === draft.message &&
+        last.salutation === draft.salutation &&
+        last.bodyFont === draft.bodyFont
+      const savedAt =
+        unchanged && lastSavedAt.current !== null ? lastSavedAt.current : new Date().toISOString()
+      lastContent.current = draft
+      lastSavedAt.current = savedAt
+      pending.current = { ...draft, savedAt }
       if (timer.current !== null) clearTimeout(timer.current)
       timer.current = setTimeout(flush, DEBOUNCE_MS)
     },

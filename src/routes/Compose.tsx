@@ -1,8 +1,10 @@
+import { useCallback, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { ComposeLetter } from '../components/ComposeLetter'
 import { useDraft } from '../hooks/useDraft'
 import { useLettersContext } from '../hooks/LettersProvider'
+import { formatLetterDate } from '../lib/format'
 
 export default function Compose() {
   const { partnerName, loading, sendLetter, editScheduled, scheduled } = useLettersContext()
@@ -15,6 +17,20 @@ export default function Compose() {
   // values once, so a draft that arrives after first render never reaches
   // the textarea.
   const { restored, save, clear } = useDraft(userId)
+  // Bumping this remounts ComposeLetter, which is how "Start fresh" empties
+  // fields that live in the composer's own useState — the same remount
+  // pattern the `editing` branch already relies on through `key={editing.id}`.
+  // It also resets the scheduling toggle and date, which for a button called
+  // "Start fresh" is the intended meaning rather than a side effect.
+  const [freshCount, setFreshCount] = useState(0)
+  const [noticeShown, setNoticeShown] = useState(restored !== null)
+
+  const startFresh = useCallback(() => {
+    clear()
+    setNoticeShown(false)
+    setFreshCount((n) => n + 1)
+  }, [clear])
+
   const editId = searchParams.get('edit')
   // Undefined while the id doesn't resolve to one of the caller's own
   // pending letters — a stale link, or one that has since delivered or been
@@ -70,28 +86,42 @@ export default function Compose() {
   }
 
   return (
-    <ComposeLetter
-      key="new"
-      partnerName={partnerName}
-      disabled={loading}
-      initialMessage={restored?.message ?? ''}
-      initialSalutation={restored?.salutation ?? ''}
-      initialBodyFont={restored?.bodyFont ?? null}
-      onDraftChange={save}
-      onCancel={() => {
-        // Discarding must also throw away what was saved, or the letter they
-        // just discarded is waiting for them next time.
-        clear()
-        navigate('/')
-      }}
-      onSend={async (message, salutation, bodyFont, scheduledFor) => {
-        const result = await sendLetter(message, salutation, bodyFont, scheduledFor)
-        if (result.ok) {
+    <div>
+      {noticeShown && restored !== null && (
+        <p className="mx-auto mb-4 flex max-w-[600px] flex-wrap items-center gap-2 font-ui text-sm text-ink-muted">
+          Unsent, from {formatLetterDate(restored.savedAt)}.
+          <button
+            type="button"
+            onClick={startFresh}
+            className="font-ui text-sm text-accent underline underline-offset-4"
+          >
+            Start fresh
+          </button>
+        </p>
+      )}
+      <ComposeLetter
+        key={`new-${freshCount}`}
+        partnerName={partnerName}
+        disabled={loading}
+        initialMessage={freshCount === 0 ? (restored?.message ?? '') : ''}
+        initialSalutation={freshCount === 0 ? (restored?.salutation ?? '') : ''}
+        initialBodyFont={freshCount === 0 ? (restored?.bodyFont ?? null) : null}
+        onDraftChange={save}
+        onCancel={() => {
+          // Discarding must also throw away what was saved, or the letter they
+          // just discarded is waiting for them next time.
           clear()
           navigate('/')
-        }
-        return result
-      }}
-    />
+        }}
+        onSend={async (message, salutation, bodyFont, scheduledFor) => {
+          const result = await sendLetter(message, salutation, bodyFont, scheduledFor)
+          if (result.ok) {
+            clear()
+            navigate('/')
+          }
+          return result
+        }}
+      />
+    </div>
   )
 }
