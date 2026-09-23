@@ -1,11 +1,20 @@
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useAuth } from '../auth/useAuth'
 import { ComposeLetter } from '../components/ComposeLetter'
+import { useDraft } from '../hooks/useDraft'
 import { useLettersContext } from '../hooks/LettersProvider'
 
 export default function Compose() {
   const { partnerName, loading, sendLetter, editScheduled, scheduled } = useLettersContext()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const { userId } = useAuth()
+  // Read once, synchronously, on the first render. The hook does this in a
+  // useState initializer rather than an effect for the same reason the
+  // `loading` guard below exists: ComposeLetter's useState reads its initial
+  // values once, so a draft that arrives after first render never reaches
+  // the textarea.
+  const { restored, save, clear } = useDraft(userId)
   const editId = searchParams.get('edit')
   // Undefined while the id doesn't resolve to one of the caller's own
   // pending letters — a stale link, or one that has since delivered or been
@@ -65,10 +74,22 @@ export default function Compose() {
       key="new"
       partnerName={partnerName}
       disabled={loading}
-      onCancel={() => navigate('/')}
+      initialMessage={restored?.message ?? ''}
+      initialSalutation={restored?.salutation ?? ''}
+      initialBodyFont={restored?.bodyFont ?? null}
+      onDraftChange={save}
+      onCancel={() => {
+        // Discarding must also throw away what was saved, or the letter they
+        // just discarded is waiting for them next time.
+        clear()
+        navigate('/')
+      }}
       onSend={async (message, salutation, bodyFont, scheduledFor) => {
         const result = await sendLetter(message, salutation, bodyFont, scheduledFor)
-        if (result.ok) navigate('/')
+        if (result.ok) {
+          clear()
+          navigate('/')
+        }
         return result
       }}
     />

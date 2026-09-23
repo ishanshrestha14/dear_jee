@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Send } from 'lucide-react'
 import { PaperTexture } from '../design/PaperTexture'
@@ -36,6 +36,16 @@ interface ComposeLetterProps {
   /** Swaps the button's resting and in-flight copy for the edit case. */
   submitLabel?: string
   sendingLabel?: string
+  /**
+   * Fired whenever the words, the salutation or the face change. Only the
+   * fresh-letter caller passes it; editing a scheduled letter does not
+   * autosave, because that letter already has a saved copy on the server.
+   */
+  onDraftChange?: (draft: {
+    message: string
+    salutation: string
+    bodyFont: BodyFont | null
+  }) => void
 }
 
 /** A blank page. Nothing on screen competes with the writing. */
@@ -50,6 +60,7 @@ export function ComposeLetter({
   initialScheduledFor = null,
   submitLabel = 'Send letter',
   sendingLabel = 'Sending…',
+  onDraftChange,
 }: ComposeLetterProps) {
   const [message, setMessage] = useState(initialMessage)
   const [salutation, setSalutation] = useState(initialSalutation)
@@ -67,6 +78,14 @@ export function ComposeLetter({
   const [scheduledDate, setScheduledDate] = useState<string | null>(initialParts?.date ?? null)
   const [scheduledTime, setScheduledTime] = useState(initialParts?.time ?? '09:00')
   const todayKtm = todayInKathmandu()
+
+  // Reports every change upward for autosave. An effect rather than a call
+  // inside each setState so that all three fields are covered by one path,
+  // including the clearing that happens after a successful send.
+  useEffect(() => {
+    if (onDraftChange === undefined) return
+    onDraftChange({ message, salutation, bodyFont })
+  }, [message, salutation, bodyFont, onDraftChange])
 
   const words = message.trim() === '' ? 0 : message.trim().split(/\s+/).length
   const valid = validateLetter(message).ok
