@@ -205,3 +205,13 @@ leave the prop as a single `ReactNode` and have call sites compose a
 change to `PaperTexture.tsx` and its two-or-more call sites — not attempted
 here, since the sibling branch is unmerged and speculative accommodation
 would be worse than this note.
+
+## Carried out of the drafts phase (Phase 12)
+
+**Nothing clears `dearjee:draft:<userId>` on account deletion.** The draft is
+per-user `localStorage`, deliberately untouched by sign-out so an unfinished
+letter survives signing back in — but that same design means a departing
+person's unsent words persist on that device indefinitely once the account
+itself is gone, with no UI anywhere to reach and remove them. There is no
+account-deletion UI in `src/routes/Settings.tsx` today to hook this to;
+whoever builds one owns clearing the draft key as part of that flow.

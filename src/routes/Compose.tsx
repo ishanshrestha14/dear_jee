@@ -1,11 +1,60 @@
+import { useCallback, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useAuth } from '../auth/useAuth'
 import { ComposeLetter } from '../components/ComposeLetter'
+import { useDraft } from '../hooks/useDraft'
 import { useLettersContext } from '../hooks/LettersProvider'
+import { formatLetterDate } from '../lib/format'
+import type { BodyFont } from '../lib/validation'
 
 export default function Compose() {
   const { partnerName, loading, sendLetter, editScheduled, scheduled } = useLettersContext()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const { userId } = useAuth()
+  // Read once, synchronously, on the first render. The hook does this in a
+  // useState initializer rather than an effect for the same reason the
+  // `loading` guard below exists: ComposeLetter's useState reads its initial
+  // values once, so a draft that arrives after first render never reaches
+  // the textarea.
+  const { restored, save, clear } = useDraft(userId)
+  // Bumping this remounts ComposeLetter, which is how "Start fresh" empties
+  // fields that live in the composer's own useState — the same remount
+  // pattern the `editing` branch already relies on through `key={editing.id}`.
+  // It also resets the scheduling toggle and date, which for a button called
+  // "Start fresh" is the intended meaning rather than a side effect.
+  const [freshCount, setFreshCount] = useState(0)
+  const [noticeShown, setNoticeShown] = useState(restored !== null)
+
+  const startFresh = useCallback(() => {
+    clear()
+    setNoticeShown(false)
+    setFreshCount((n) => n + 1)
+  }, [clear])
+
+  // Wraps `save` so the notice hides itself the moment the composer's
+  // content diverges from what was restored, rather than staying on screen
+  // with a stale date for the whole session. ComposeLetter's reporting
+  // effect fires once on mount with the restored values UNCHANGED, so that
+  // first call compares equal here and does not hide the notice — only a
+  // real edit does. Identity must stay stable (useCallback): ComposeLetter's
+  // effect depends on this function, and `restored`/`save` are themselves
+  // stable, so this only changes if the hook's own dependencies change.
+  const handleDraftChange = useCallback(
+    (draft: { message: string; salutation: string; bodyFont: BodyFont | null }) => {
+      if (
+        restored !== null &&
+        (draft.message !== restored.message ||
+          draft.salutation !== restored.salutation ||
+          draft.bodyFont !== restored.bodyFont)
+      ) {
+        setNoticeShown(false)
+      }
+      save(draft)
+    },
+    [restored, save],
+  )
+
   const editId = searchParams.get('edit')
   // Undefined while the id doesn't resolve to one of the caller's own
   // pending letters — a stale link, or one that has since delivered or been
@@ -61,16 +110,42 @@ export default function Compose() {
   }
 
   return (
-    <ComposeLetter
-      key="new"
-      partnerName={partnerName}
-      disabled={loading}
-      onCancel={() => navigate('/')}
-      onSend={async (message, salutation, bodyFont, scheduledFor) => {
-        const result = await sendLetter(message, salutation, bodyFont, scheduledFor)
-        if (result.ok) navigate('/')
-        return result
-      }}
-    />
+    <div>
+      {noticeShown && restored !== null && (
+        <p className="mx-auto mb-4 flex max-w-[600px] flex-wrap items-center gap-2 font-ui text-sm text-ink-muted">
+          Unsent, from {formatLetterDate(restored.savedAt)}.
+          <button
+            type="button"
+            onClick={startFresh}
+            className="font-ui text-sm text-ink-muted underline underline-offset-4 transition-colors hover:text-accent"
+          >
+            Start fresh
+          </button>
+        </p>
+      )}
+      <ComposeLetter
+        key={`new-${freshCount}`}
+        partnerName={partnerName}
+        disabled={loading}
+        initialMessage={freshCount === 0 ? (restored?.message ?? '') : ''}
+        initialSalutation={freshCount === 0 ? (restored?.salutation ?? '') : ''}
+        initialBodyFont={freshCount === 0 ? (restored?.bodyFont ?? null) : null}
+        onDraftChange={handleDraftChange}
+        onCancel={() => {
+          // Discarding must also throw away what was saved, or the letter they
+          // just discarded is waiting for them next time.
+          clear()
+          navigate('/')
+        }}
+        onSend={async (message, salutation, bodyFont, scheduledFor) => {
+          const result = await sendLetter(message, salutation, bodyFont, scheduledFor)
+          if (result.ok) {
+            clear()
+            navigate('/')
+          }
+          return result
+        }}
+      />
+    </div>
   )
 }

@@ -673,6 +673,121 @@ the same window would instead have shown every letter as folded. Either way,
 folding will not work until the migration runs — deploy the SQL first. Phases
 6, 7 and 8 also remain unapplied.
 
+## Phase 12 — Drafts *(complete, no SQL)*
+
+A letter in this app is meant to be written slowly, and until this phase,
+closing the tab destroyed whatever had been written so far. The composer now
+remembers one unfinished letter per user, kept on the device in
+`localStorage`, restored without ceremony when the composer reopens, with a
+single quiet line saying where the words came from and a "Start fresh" way
+out.
+
+- **It is an invisible safety net, not a shelf.** There is no drafts list, no
+  save button, no naming, no deleting, no badge, no count — one unfinished
+  letter, the one you are writing. A visible, curated list of drafts would be
+  close enough to the HELD letter that already exists (`listHeld` /
+  `sendHeld`: written with no bond, addressed to nobody, kept until sent) that
+  building both would give the app two overlapping answers to "an unsent
+  letter I come back to."
+- **Nothing here reaches the database.** No table, no column, no RLS policy,
+  no repository method, no change to `LetterRepository`, and so no mock-parity
+  work — the standing rule that the mock must reimplement whatever the
+  database enforces has nothing to reimplement this time, because the
+  database was never involved. `src/lib/draft.ts` is pure and framework-free,
+  reading and writing through an injected `StorageLike` interface rather than
+  touching `localStorage` directly, which is what makes it testable under this
+  project's logic-level-tests-only rule with no jsdom.
+- **The scheduled date is deliberately not stored.** A date chosen on Tuesday
+  and restored on Friday may already be past, and `validateScheduledFor` would
+  reject it at send. Silently losing a picker selection on restore is a
+  smaller harm than silently restoring one that is now invalid.
+- **Editing a scheduled letter deliberately does not autosave.** That letter
+  already has a saved copy on the server, and local autosave there carries the
+  opposite risk: restoring stale local text over a newer saved version, or
+  over a letter that delivered or was cancelled while the tab was shut — none
+  of which the device can reliably observe. Only the fresh-letter branch of
+  `Compose.tsx` reads and writes a draft; the `?edit=<id>` branch is
+  untouched.
+- **The key is `dearjee:draft:<userId>`, and the user id is not optional.**
+  Two accounts on one device is not hypothetical in an app whose whole premise
+  is two people — an unkeyed draft would show one person's unsent words to
+  the other on a shared laptop.
+- **Signing out does NOT clear the draft.** The per-user key is the
+  protection. Clearing on sign-out would destroy an unfinished letter every
+  time someone signs out and back in, which is the exact loss this phase
+  exists to prevent.
+- **`readDraft` validates rather than trusts.** `localStorage` is
+  user-writable and outlives deploys, so a stored entry is an untrusted string
+  from an unknown version of this app. Anything that isn't an object with a
+  string `message`, a string `salutation`, a string `savedAt` that parses as a
+  date, and a `bodyFont` that passes the existing `validateBodyFont` reads
+  back as no draft at all, rather than a crash or a garbled composer.
+- **The spec's four-file table became five.** `src/hooks/useDraft.ts` holds
+  the debounce, the unmount and tab-close flush, the suppression flag, and the
+  `savedAt`-preservation logic — around 50 lines of timing behaviour the plan
+  judged did not belong inlined into a route component. `Compose.tsx` wires
+  the hook up and owns the notice; `useDraft.ts` owns everything about
+  *when* a draft actually gets written.
+
+**Found by review — the two defects are the most interesting part of this
+phase:**
+- **The discard race.** Discard clears the draft and then navigates, which
+  unmounts the composer, and the unmount flush would have written the still-
+  pending text straight back. The symptom would not have been "discard is
+  broken" — it would have been the letter you just threw away sitting in the
+  composer the next time you opened it. Fixed with a suppression flag on
+  `useDraft`'s `clear()` that makes it cancel the pending write rather than
+  race it.
+- **The notice that would have lied.** `ComposeLetter`'s reporting effect
+  fires once on mount, so merely opening the composer re-saved the restored
+  draft with a fresh `savedAt`. Since the notice reads "Unsent, from
+  &lt;date&gt;" off that field, an untouched draft would have drifted to
+  showing the day you last *opened* the composer rather than the day you last
+  *wrote* — visible only across days, and exactly the kind of thing that
+  ships. Fixed by comparing the incoming draft's content against what was last
+  saved or restored and preserving the prior `savedAt` when nothing actually
+  changed.
+
+**Not verified.** Nobody ran a browser for this phase. The notice's wording,
+its placement above the paper, and the layout at 375px are all unverified.
+The debounce, the flush paths, the suppression flag, and the whole of
+`Compose.tsx`'s wiring have no automated coverage, because this repo has no
+component or hook tests and this phase did not add the first ones — the tests
+cover `src/lib/draft.ts` only. Review found four minor findings in total.
+Two were test-name gaps in `draft.test.ts` narrower than their names
+suggested (the "missing or not a string" test only exercised the wrong-type
+case, not a genuinely absent key; the "non-object" test covered JSON `null`
+but not arrays or primitives) — both are fixed now, with the missing-key and
+array/primitive cases added alongside a new test for an unparseable
+`savedAt`. The other two are recorded rather than fixed: `useDraft`'s
+`lastContent`/`lastSavedAt` are not reset by `clear()` — confirmed safe by a
+comment at the call site, since a blank message routes to `clearDraft` rather
+than `writeDraft` and `startFresh` remounts the hook anyway, but still worth
+a reader's second look before trusting on sight — and `Compose.tsx`'s return
+block has grown to around 25 lines carrying both the notice and the composer.
+
+**Fix wave (post-review).** Two Important findings from the whole-branch
+review were fixed. First, the debounce only ever flushed on React unmount,
+which is in-app navigation — browsers do not run effect cleanups on an actual
+tab close, so a real close or reload within 600ms of the last keystroke lost
+that text, and iOS Safari backgrounds and discards tabs rather than
+unmounting them as its normal path. `useDraft.ts` now also flushes on
+`pagehide` and on `visibilitychange` going to `'hidden'`, and a new
+`MAX_DEBOUNCE_MS` ceiling (5s) guarantees a write lands within a few seconds
+of the *first* unsaved keystroke even if someone types fast enough to keep
+resetting the 600ms debounce indefinitely. Second, the restore notice was
+shown for the whole session once `restored` was non-null at mount, with no
+way for it to go stale — so a person who restored a draft and then wrote ten
+new minutes over it still saw "Unsent, from &lt;original date&gt;." next to a
+"Start fresh" button that would silently discard the new words with no
+confirmation, unlike the adjacent cancel flow's deliberate "Discard this
+letter?" prompt. `Compose.tsx` now hides the notice itself the moment the
+composer's content diverges from `restored`, via a stable `useCallback`
+wrapper around `save` that ComposeLetter's reporting effect depends on.
+
+**Migration status.** There is no SQL in this phase at all — nothing to
+apply. That is the first time that has been true in this project.
+
 ---
 
 ## Open decisions and known gaps
